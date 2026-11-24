@@ -154,19 +154,25 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await findUserByEmail(email);
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Please enter both email and password' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const user = await findUserByEmail(cleanEmail);
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    const isMatch = await bcrypt.compare(String(password), user.passwordHash);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
   } catch (err) {
-    res.status(500).json({ error: 'Login failed' });
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Login failed: ' + (err.message || 'Server error') });
   }
 });
 

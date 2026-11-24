@@ -43,15 +43,15 @@ export default function App() {
         setPassword('');
       } else {
         const res = await axios.post(`${API_BASE_URL}/login`, {
-          email,
+          email: email.trim(),
           password,
         });
 
         if (res.data.role !== loginPortal) {
           setError(
             loginPortal === 'admin'
-              ? 'Access denied: This account does not have Admin privileges.'
-              : 'Please switch to the Admin Login tab to sign in with an Admin account.'
+              ? 'Access denied: This account is registered as a Team Member. Please switch to the Team Member portal.'
+              : 'Access denied: This is an Admin account. Please switch to the Admin Portal tab.'
           );
           return;
         }
@@ -59,7 +59,14 @@ export default function App() {
         setCurrentUser(res.data);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Something went wrong');
+      console.error('Sign in error:', err);
+      if (err.response?.data?.error) {
+        setError(err.response.data.error);
+      } else if (err.message === 'Network Error' || !err.response) {
+        setError('Cannot connect to backend server. Please verify the backend service is running.');
+      } else {
+        setError(err.message || 'Something went wrong during sign in');
+      }
     }
   };
 
@@ -224,11 +231,15 @@ export default function App() {
             </button>
           </form>
 
-          {loginPortal === 'admin' && (
+          {loginPortal === 'admin' ? (
             <div className="demo-hint">
               Default Admin: <strong>admin@company.com</strong> / <strong>admin123</strong>
             </div>
-          )}
+          ) : !isRegisterMode ? (
+            <div className="demo-hint">
+              Demo Member: <strong>jessica12@gmail.com</strong> / <strong>user123</strong> (or click Create Account)
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

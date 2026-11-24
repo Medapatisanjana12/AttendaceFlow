@@ -14,7 +14,28 @@ function enqueueWrite(fn) {
   return writeQueue;
 }
 
+function getCellValueString(cell) {
+  if (!cell || cell.value === null || cell.value === undefined) return '';
+  const val = cell.value;
+  if (typeof val === 'string') return val.trim();
+  if (typeof val === 'number') return String(val);
+  if (typeof val === 'object') {
+    if (val.text) return String(val.text).trim();
+    if (val.result) return String(val.result).trim();
+    if (Array.isArray(val.richText)) {
+      return val.richText.map((r) => r.text).join('').trim();
+    }
+  }
+  return String(val).trim();
+}
+
+let isInitialized = false;
+
 async function initExcel() {
+  if (isInitialized && fs.existsSync(FILE_PATH)) {
+    return;
+  }
+
   if (!fs.existsSync(FILE_PATH)) {
     const workbook = new ExcelJS.Workbook();
     // Sheet 1: Tasks
@@ -40,9 +61,11 @@ async function initExcel() {
       { header: 'role', key: 'role', width: 15 },
     ];
 
-    // Seed default Admin account
+    // Seed default Admin account and default user
     const defaultAdminHash = await bcrypt.hash('admin123', 10);
+    const defaultUserHash = await bcrypt.hash('user123', 10);
     userSheet.addRow(['1', 'System Admin', 'admin@company.com', defaultAdminHash, 'admin']);
+    userSheet.addRow(['2', 'Jessica Taylor', 'jessica12@gmail.com', defaultUserHash, 'user']);
 
     await workbook.xlsx.writeFile(FILE_PATH);
     console.log('Created tasks.xlsx with Tasks and Users sheets');
@@ -50,44 +73,70 @@ async function initExcel() {
     try {
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.readFile(FILE_PATH);
+      let needsSave = false;
+
       const taskSheet = workbook.getWorksheet('Tasks');
-      if (taskSheet && taskSheet.getCell(1, 7).value !== 'userNote') {
-        taskSheet.getCell(1, 7).value = 'userNote';
-        taskSheet.getColumn(7).width = 40;
+      if (taskSheet) {
+        if (taskSheet.getCell(1, 7).value !== 'userNote') {
+          taskSheet.getCell(1, 7).value = 'userNote';
+          taskSheet.getColumn(7).width = 40;
+          needsSave = true;
+        }
+        if (taskSheet.getCell(1, 8).value !== 'proofAttachment') {
+          taskSheet.getCell(1, 8).value = 'proofAttachment';
+          taskSheet.getColumn(8).width = 45;
+          needsSave = true;
+        }
+      }
+
+      const userSheet = workbook.getWorksheet('Users');
+      if (!userSheet) {
+        const newUsersSheet = workbook.addWorksheet('Users');
+        newUsersSheet.columns = [
+          { header: 'id', key: 'id', width: 20 },
+          { header: 'name', key: 'name', width: 25 },
+          { header: 'email', key: 'email', width: 30 },
+          { header: 'passwordHash', key: 'passwordHash', width: 65 },
+          { header: 'role', key: 'role', width: 15 },
+        ];
+        const defaultAdminHash = await bcrypt.hash('admin123', 10);
+        newUsersSheet.addRow(['1', 'System Admin', 'admin@company.com', defaultAdminHash, 'admin']);
+        needsSave = true;
+      }
+
+      if (needsSave) {
+        await syncUserProgressSheet(workbook);
         await workbook.xlsx.writeFile(FILE_PATH);
       }
-      if (taskSheet && taskSheet.getCell(1, 8).value !== 'proofAttachment') {
-        taskSheet.getCell(1, 8).value = 'proofAttachment';
-        taskSheet.getColumn(8).width = 45;
-        await workbook.xlsx.writeFile(FILE_PATH);
-      }
-      await syncUserProgressSheet(workbook);
-      await workbook.xlsx.writeFile(FILE_PATH);
     } catch (e) {
       console.error('Error verifying existing tasks.xlsx header:', e);
     }
   }
+  isInitialized = true;
 }
 
 // --- USER AUTH FUNCTIONS ---
 
 async function findUserByEmail(email) {
+  if (!email || typeof email !== 'string') return null;
   await initExcel();
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(FILE_PATH);
   const sheet = workbook.getWorksheet('Users');
+  if (!sheet) return null;
   let foundUser = null;
 
+  const targetEmail = email.trim().toLowerCase();
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
-    const rowEmail = row.getCell(3).value?.toString().toLowerCase();
-    if (rowEmail === email.trim().toLowerCase()) {
+    const rowEmail = getCellValueString(row.getCell(3)).toLowerCase();
+    if (rowEmail === targetEmail) {
       foundUser = {
-        id: row.getCell(1).value?.toString(),
-        name: row.getCell(2).value?.toString(),
+        id: getCellValueString(row.getCell(1)),
+        name: getCellValueString(row.getCell(2)) || 'User',
         email: rowEmail,
-        passwordHash: row.getCell(4).value?.toString(),
-        role: row.getCell(5).value?.toString(),
+        passwordHash: getCellValueString(row.getCell(4)),
+        role: getCellValueString(row.getCell(5)) || 'user',
       };
     }
   });
@@ -391,10 +440,10 @@ async function getAllUsers() {
     userSheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
       users.push({
-        id: row.getCell(1).value?.toString(),
-        name: row.getCell(2).value?.toString() || 'Team Member',
-        email: (row.getCell(3).value?.toString() || '').trim().toLowerCase(),
-        role: row.getCell(5).value?.toString(),
+        id: getCellValueString(row.getCell(1)),
+        name: getCellValueString(row.getCell(2)) || 'Team Member',
+        email: getCellValueString(row.getCell(3)).toLowerCase(),
+        role: getCellValueString(row.getCell(5)) || 'user',
       });
     });
   }
@@ -412,10 +461,10 @@ async function getUserProgressModules() {
     userSheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
       users.push({
-        id: row.getCell(1).value?.toString(),
-        name: row.getCell(2).value?.toString() || 'Team Member',
-        email: (row.getCell(3).value?.toString() || '').trim().toLowerCase(),
-        role: row.getCell(5).value?.toString(),
+        id: getCellValueString(row.getCell(1)),
+        name: getCellValueString(row.getCell(2)) || 'Team Member',
+        email: getCellValueString(row.getCell(3)).toLowerCase(),
+        role: getCellValueString(row.getCell(5)) || 'user',
       });
     });
   }
