@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import socket from '../socket';
+import { API_BASE_URL } from '../config';
 
 export default function AdminDashboard({ onLogout }) {
   const [tasks, setTasks] = useState([]);
@@ -12,7 +13,7 @@ export default function AdminDashboard({ onLogout }) {
 
   useEffect(() => {
     axios
-      .get('http://localhost:5000/api/tasks?role=admin')
+      .get(`${API_BASE_URL}/tasks?role=admin`)
       .then((res) => {
         if (Array.isArray(res.data)) {
           setTasks(res.data);
@@ -47,7 +48,7 @@ export default function AdminDashboard({ onLogout }) {
     if (!assignedTo || !title) return;
 
     try {
-      await axios.post('http://localhost:5000/api/tasks', {
+      await axios.post(`${API_BASE_URL}/tasks`, {
         assignedTo,
         title,
         description,

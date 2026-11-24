@@ -3,6 +3,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const path = require('path');
+const fs = require('fs');
 const {
   initExcel,
   findUserByEmail,
@@ -15,14 +17,18 @@ const {
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL, 'http://localhost:5173']
+  : '*';
+
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PATCH'],
   },
 });
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 // --- SOCKET.IO REAL-TIME ROOMS ---
@@ -170,7 +176,18 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-const PORT = 5000;
+const frontendDist = path.join(__dirname, '../frontend/vite-project/dist');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      return res.sendFile(path.join(frontendDist, 'index.html'));
+    }
+    next();
+  });
+}
+
+const PORT = process.env.PORT || 5000;
 initExcel().then(() => {
   server.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);

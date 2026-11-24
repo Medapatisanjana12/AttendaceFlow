@@ -3,6 +3,7 @@ import axios from 'axios';
 import AdminDashboard from './components/AdminDashboard';
 import UserDashboard from './components/UserDashboard';
 import { BrandLogo, HeroEditorialIllustration } from './components/Illustrations';
+import { API_BASE_URL } from './config';
 import './App.css';
 
 export default function App() {
@@ -32,7 +33,7 @@ export default function App() {
 
     try {
       if (isRegisterMode && loginPortal === 'user') {
-        await axios.post('http://localhost:5000/api/register', {
+        await axios.post(`${API_BASE_URL}/register`, {
           name,
           email,
           password,
@@ -41,7 +42,7 @@ export default function App() {
         setIsRegisterMode(false);
         setPassword('');
       } else {
-        const res = await axios.post('http://localhost:5000/api/login', {
+        const res = await axios.post(`${API_BASE_URL}/login`, {
           email,
           password,
         });

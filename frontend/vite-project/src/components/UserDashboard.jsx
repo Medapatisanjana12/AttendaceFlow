@@ -2,9 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import socket from '../socket';
+import { API_BASE_URL } from '../config';
 
-const API_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = API_BASE_URL;
 
 // Reusable SVG illustration
 function HeroIllustration() {
