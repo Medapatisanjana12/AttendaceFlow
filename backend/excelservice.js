@@ -27,6 +27,7 @@ async function initExcel() {
       { header: 'status', key: 'status', width: 15 },
       { header: 'updatedAt', key: 'updatedAt', width: 25 },
       { header: 'userNote', key: 'userNote', width: 40 },
+      { header: 'proofAttachment', key: 'proofAttachment', width: 45 },
     ];
 
     // Sheet 2: Users
@@ -53,6 +54,11 @@ async function initExcel() {
       if (taskSheet && taskSheet.getCell(1, 7).value !== 'userNote') {
         taskSheet.getCell(1, 7).value = 'userNote';
         taskSheet.getColumn(7).width = 40;
+        await workbook.xlsx.writeFile(FILE_PATH);
+      }
+      if (taskSheet && taskSheet.getCell(1, 8).value !== 'proofAttachment') {
+        taskSheet.getCell(1, 8).value = 'proofAttachment';
+        taskSheet.getColumn(8).width = 45;
         await workbook.xlsx.writeFile(FILE_PATH);
       }
       await syncUserProgressSheet(workbook);
@@ -203,6 +209,7 @@ async function getAllTasks() {
       status: row.getCell(5).value?.toString(),
       updatedAt: row.getCell(6).value?.toString(),
       userNote: row.getCell(7).value?.toString() || '',
+      proofAttachment: row.getCell(8).value?.toString() || '',
     });
   });
 
@@ -224,6 +231,7 @@ function addTask(taskData) {
   status: 'Pending',
   updatedAt: new Date().toLocaleString(),
   userNote: '',
+  proofAttachment: taskData.proofAttachment || '',
 };
 
     sheet.addRow([
@@ -234,6 +242,7 @@ function addTask(taskData) {
   newTask.status,
   newTask.updatedAt,
   newTask.userNote,
+  newTask.proofAttachment,
 ]);
 
     await syncUserProgressSheet(workbook);
@@ -242,7 +251,7 @@ function addTask(taskData) {
   });
 }
 
-function updateTask(taskId, { status, userNote }) {
+function updateTask(taskId, { status, userNote, proofAttachment }) {
   return enqueueWrite(async () => {
     await initExcel();
     const workbook = new ExcelJS.Workbook();
@@ -255,6 +264,7 @@ function updateTask(taskId, { status, userNote }) {
       if (row.getCell(1).value?.toString() === taskId.toString()) {
         if (status !== undefined) row.getCell(5).value = status;
         if (userNote !== undefined) row.getCell(7).value = userNote;
+        if (proofAttachment !== undefined) row.getCell(8).value = proofAttachment;
         row.getCell(6).value = new Date().toLocaleString();
 
         updatedTask = {
@@ -265,6 +275,7 @@ function updateTask(taskId, { status, userNote }) {
           status: row.getCell(5).value?.toString(),
           updatedAt: row.getCell(6).value?.toString(),
           userNote: row.getCell(7).value?.toString() || '',
+          proofAttachment: row.getCell(8).value?.toString() || '',
         };
       }
     });
@@ -295,6 +306,7 @@ async function syncUserProgressSheet(workbook) {
       status: row.getCell(5).value?.toString() || 'Pending',
       updatedAt: row.getCell(6).value?.toString() || '',
       userNote: row.getCell(7).value?.toString() || '',
+      proofAttachment: row.getCell(8).value?.toString() || '',
     });
   });
 
@@ -436,6 +448,7 @@ async function getUserProgressModules() {
 
     const tasksWithNotes = userTasks.filter((t) => t.userNote && t.userNote.trim());
     const latestNoteTask = tasksWithNotes.length > 0 ? tasksWithNotes[tasksWithNotes.length - 1] : null;
+    const proofsCount = userTasks.filter((t) => t.proofAttachment && t.proofAttachment.trim()).length;
 
     return {
       userId: user.id,
@@ -446,9 +459,11 @@ async function getUserProgressModules() {
       inProgressCount: inProgressTasks.length,
       incompleteCount: incompleteTasks.length,
       progressPercent,
+      proofsCount,
       latestNote: latestNoteTask ? latestNoteTask.userNote : '',
       latestNoteTaskTitle: latestNoteTask ? latestNoteTask.title : '',
       latestNoteDate: latestNoteTask ? latestNoteTask.updatedAt : '',
+      latestProof: latestNoteTask ? latestNoteTask.proofAttachment : '',
       tasks: userTasks,
     };
   });

@@ -2393,3 +2393,236 @@ tbody tr:hover {
 .btn-clear-filter:hover {
   background-color: #DBEAFE;
 }
+
+/* =====================================================
+   PROOF OF WORK (DOCUMENTS & LINKS) STYLES
+===================================================== */
+.proof-badge-link,
+.admin-proof-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #FFF2EB;
+  color: #F16F28;
+  border: 1px solid #FCD9C6;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.proof-badge-link:hover,
+.admin-proof-badge:hover {
+  background-color: #F16F28;
+  color: #FFFFFF;
+  border-color: #F16F28;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(241, 111, 40, 0.25);
+}
+
+.admin-proof-badge {
+  background-color: #EFF6FF;
+  color: #2563EB;
+  border-color: #BFDBFE;
+}
+
+.admin-proof-badge:hover {
+  background-color: #2563EB;
+  color: #FFFFFF;
+  border-color: #2563EB;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+.proof-section {
+  background: #F8F7FC;
+  border: 1px solid #E4E2F0;
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 14px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.proof-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.proof-header label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #242158;
+  margin: 0;
+}
+
+.proof-subtext {
+  font-size: 11px;
+  color: #79769B;
+  font-weight: 500;
+}
+
+.proof-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #FFFFFF;
+  border: 1px solid #DCDAEB;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  box-shadow: 0 1px 3px rgba(36, 33, 88, 0.05);
+}
+
+.proof-chip-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.proof-chip-link {
+  color: #242158;
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.proof-chip-link:hover {
+  color: #F16F28;
+  text-decoration: underline;
+}
+
+.proof-chip-remove {
+  background: transparent;
+  border: none;
+  color: #94A3B8;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.proof-chip-remove:hover {
+  background-color: #FEE2E2;
+  color: #DC2626;
+}
+
+.proof-inputs-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.file-upload-wrapper {
+  position: relative;
+}
+
+.file-input-hidden {
+  position: absolute;
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  z-index: -1;
+}
+
+.btn-file-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #242158;
+  color: #FFFFFF;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn-file-upload:hover {
+  background-color: #35307A;
+  transform: translateY(-1px);
+}
+
+.btn-file-upload.loading {
+  background-color: #64748B;
+  cursor: wait;
+}
+
+.proof-url-input {
+  flex: 1;
+  min-width: 180px;
+  background: #FFFFFF;
+  border: 1px solid #DCDAEB;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #242158;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.proof-url-input:focus {
+  border-color: #F16F28;
+  box-shadow: 0 0 0 2px rgba(241, 111, 40, 0.15);
+}
+
+.task-feedback-banner {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  animation: fadeIn 0.25s ease-in-out;
+}
+
+.task-feedback-banner.success {
+  background-color: #ECFDF5;
+  color: #065F46;
+  border: 1px solid #A7F3D0;
+}
+
+.task-feedback-banner.error {
+  background-color: #FEF2F2;
+  color: #991B1B;
+  border: 1px solid #FECACA;
+}
+
+.module-proofs-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #F4F3FB;
+  border: 1px solid #E3E0F2;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #242158;
+  margin-top: 8px;
+}
+
+.module-proof-link {
+  margin-left: auto;
+  color: #F16F28;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.module-proof-link:hover {
+  text-decoration: underline;
+}

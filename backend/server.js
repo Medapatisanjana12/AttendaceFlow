@@ -32,7 +32,14 @@ const io = new Server(server, {
 });
 
 app.use(cors({ origin: allowedOrigins }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
 
 // --- SOCKET.IO REAL-TIME ROOMS ---
 io.on('connection', (socket) => {
@@ -56,9 +63,9 @@ io.on('connection', (socket) => {
 app.patch('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, userNote } = req.body;
+    const { status, userNote, proofAttachment } = req.body;
 
-    if (status === undefined && userNote === undefined) {
+    if (status === undefined && userNote === undefined && proofAttachment === undefined) {
       return res.status(400).json({
         error: 'No update information provided',
       });
@@ -72,6 +79,10 @@ app.patch('/api/tasks/:id', async (req, res) => {
 
     if (userNote !== undefined) {
       updates.userNote = userNote;
+    }
+
+    if (proofAttachment !== undefined) {
+      updates.proofAttachment = proofAttachment;
     }
 
     const updatedTask = await updateTask(id, updates);
@@ -101,6 +112,27 @@ app.patch('/api/tasks/:id', async (req, res) => {
     res.status(500).json({
       error: 'Failed to update task in Excel',
     });
+  }
+});
+
+app.post('/api/upload', (req, res) => {
+  try {
+    const { fileName, fileData } = req.body;
+    if (!fileName || !fileData) {
+      return res.status(400).json({ error: 'File name and file data are required' });
+    }
+
+    const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
+    const cleanFileName = `${Date.now()}-${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const filePath = path.join(uploadsDir, cleanFileName);
+
+    fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+
+    const fileUrl = `/uploads/${cleanFileName}`;
+    res.json({ url: fileUrl, fileName: cleanFileName });
+  } catch (err) {
+    console.error('File upload error:', err);
+    res.status(500).json({ error: 'Failed to upload document' });
   }
 });
 

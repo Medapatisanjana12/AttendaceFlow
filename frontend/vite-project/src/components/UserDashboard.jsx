@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import socket from '../socket';
-import { API_BASE_URL } from '../config';
+import { API_BASE_URL, BACKEND_URL } from '../config';
 
 const API_URL = API_BASE_URL;
 
@@ -147,6 +147,9 @@ function StatusBadge({ status }) {
 export default function UserDashboard({ userEmail, onLogout }) {
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState({});
+  const [proofs, setProofs] = useState({});
+  const [uploadingTask, setUploadingTask] = useState(null);
+  const [taskFeedback, setTaskFeedback] = useState({});
   const [currentView, setCurrentView] = useState('overview');
   const [filterStatus, setFilterStatus] = useState('All');
   const [loading, setLoading] = useState(true);
@@ -287,32 +290,83 @@ export default function UserDashboard({ userEmail, onLogout }) {
     }
   };
 
-  // Save note
-  const handleSaveNote = async (taskId, currentNote) => {
-    const noteText = notes[taskId] ?? currentNote ?? '';
+  // Save note & proof of work
+  const handleFileUpload = (taskId, file) => {
+    if (!file) return;
+    setUploadingTask(taskId);
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const fileData = reader.result;
+        const res = await axios.post(`${API_BASE_URL}/upload`, {
+          fileName: file.name,
+          fileData,
+        });
+
+        setProofs((prev) => ({
+          ...prev,
+          [taskId]: res.data.url,
+        }));
+        setTaskFeedback((prev) => ({
+          ...prev,
+          [taskId]: { type: 'success', msg: `✓ Document uploaded: ${file.name}` },
+        }));
+      } catch (err) {
+        console.error('File upload error:', err);
+        setTaskFeedback((prev) => ({
+          ...prev,
+          [taskId]: { type: 'error', msg: 'Failed to upload document.' },
+        }));
+      } finally {
+        setUploadingTask(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveWorkUpdate = async (taskId, currentNote, currentProof) => {
+    const noteText = notes[taskId] !== undefined ? notes[taskId] : (currentNote || '');
+    const proofText = proofs[taskId] !== undefined ? proofs[taskId] : (currentProof || '');
 
     try {
       setSavingTask(taskId);
 
       await axios.patch(`${API_URL}/tasks/${taskId}`, {
-        userNote: noteText
+        userNote: noteText,
+        proofAttachment: proofText,
       });
 
       setTasks((prev) =>
         prev.map((task) =>
           String(getTaskId(task)) === String(taskId)
-            ? { ...task, userNote: noteText }
+            ? { ...task, userNote: noteText, proofAttachment: proofText }
             : task
         )
       );
 
-      alert('Progress note saved!');
+      setTaskFeedback((prev) => ({
+        ...prev,
+        [taskId]: { type: 'success', msg: '✓ Work update & proof of work saved!' },
+      }));
+
+      setTimeout(() => {
+        setTaskFeedback((prev) => ({ ...prev, [taskId]: null }));
+      }, 3500);
     } catch (err) {
-      console.error('Note update error:', err);
-      alert('Failed to save progress note.');
+      console.error('Save error:', err);
+      setTaskFeedback((prev) => ({
+        ...prev,
+        [taskId]: { type: 'error', msg: 'Failed to save work update.' },
+      }));
     } finally {
       setSavingTask(null);
     }
+  };
+
+  // Legacy save note
+  const handleSaveNote = async (taskId, currentNote) => {
+    await handleSaveWorkUpdate(taskId, currentNote, undefined);
   };
 
   if (loading) {
@@ -513,6 +567,7 @@ export default function UserDashboard({ userEmail, onLogout }) {
                       <tr>
                         <th>Task Details</th>
                         <th>Progress Note</th>
+                        <th>Proof of Work</th>
                         <th>Status</th>
                         <th>Last Updated</th>
                         <th>Action</th>
@@ -540,6 +595,28 @@ export default function UserDashboard({ userEmail, onLogout }) {
                               <span className="muted">
                                 No notes added
                               </span>
+                            )}
+                          </td>
+
+                          <td>
+                            {task.proofAttachment ? (
+                              <a
+                                href={
+                                  task.proofAttachment.startsWith('/')
+                                    ? `${BACKEND_URL}${task.proofAttachment}`
+                                    : task.proofAttachment
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="proof-badge-link"
+                                title={task.proofAttachment}
+                              >
+                                {task.proofAttachment.startsWith('/uploads/')
+                                  ? '📄 View Document ↗'
+                                  : '🔗 Open Link ↗'}
+                              </a>
+                            ) : (
+                              <span className="muted">— No proof —</span>
                             )}
                           </td>
 
@@ -617,7 +694,8 @@ export default function UserDashboard({ userEmail, onLogout }) {
 
                       <div className="task-divider" />
 
-                      <div className="note-section">
+                      {/* WORK UPDATE & PROOF OF WORK SECTION */}
+                      <div className="note-section work-update-section">
                         <label htmlFor={`note-${taskId}`}>
                           Your Progress Notes
                         </label>
@@ -635,19 +713,115 @@ export default function UserDashboard({ userEmail, onLogout }) {
                               [taskId]: e.target.value
                             }))
                           }
-                          placeholder="Describe what you have completed..."
+                          placeholder="Describe what you completed, milestones achieved..."
                         />
+
+                        {/* Proof of Work Container */}
+                        <div className="proof-section">
+                          <div className="proof-header">
+                            <label>📎 Proof of Work (Document or Link)</label>
+                            <span className="proof-subtext">Admin will verify this proof</span>
+                          </div>
+
+                          {/* Existing / Staged Proof Preview */}
+                          {(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment) && (
+                            <div className="proof-chip">
+                              <span className="proof-chip-icon">
+                                {(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).startsWith('/uploads/') ? '📄' : '🔗'}
+                              </span>
+                              <a
+                                href={
+                                  (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).startsWith('/')
+                                    ? `${BACKEND_URL}${(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment)}`
+                                    : (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment)
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="proof-chip-link"
+                              >
+                                {(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).startsWith('/uploads/')
+                                  ? (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).replace('/uploads/', '')
+                                  : (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment)}
+                                {' ↗'}
+                              </a>
+                              <button
+                                type="button"
+                                className="proof-chip-remove"
+                                title="Remove attachment"
+                                onClick={() =>
+                                  setProofs((prev) => ({
+                                    ...prev,
+                                    [taskId]: ''
+                                  }))
+                                }
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="proof-inputs-row">
+                            {/* File Upload Button */}
+                            <div className="file-upload-wrapper">
+                              <input
+                                type="file"
+                                id={`file-input-${taskId}`}
+                                className="file-input-hidden"
+                                onChange={(e) => {
+                                  if (e.target.files?.[0]) {
+                                    handleFileUpload(taskId, e.target.files[0]);
+                                  }
+                                }}
+                              />
+                              <label
+                                htmlFor={`file-input-${taskId}`}
+                                className={`btn-file-upload ${uploadingTask === taskId ? 'loading' : ''}`}
+                              >
+                                {uploadingTask === taskId ? '⏳ Uploading...' : '📁 Upload File/Document'}
+                              </label>
+                            </div>
+
+                            {/* Or Link Input */}
+                            <input
+                              type="url"
+                              className="proof-url-input"
+                              placeholder="Or paste link (Google Drive, GitHub, Figma...)"
+                              value={
+                                proofs[taskId] !== undefined
+                                  ? proofs[taskId]
+                                  : task.proofAttachment || ''
+                              }
+                              onChange={(e) =>
+                                setProofs((prev) => ({
+                                  ...prev,
+                                  [taskId]: e.target.value
+                                }))
+                              }
+                            />
+                          </div>
+
+                          {/* Task Feedback Message */}
+                          {taskFeedback[taskId] && (
+                            <div className={`task-feedback-banner ${taskFeedback[taskId].type}`}>
+                              {taskFeedback[taskId].msg}
+                            </div>
+                          )}
+                        </div>
 
                         <button
                           className="btn-primary save-btn"
-                          disabled={savingTask === taskId}
+                          disabled={savingTask === taskId || uploadingTask === taskId}
                           onClick={() =>
-                            handleSaveNote(taskId, task.userNote)
+                            handleSaveWorkUpdate(
+                              taskId,
+                              task.userNote,
+                              task.proofAttachment
+                            )
                           }
                         >
                           {savingTask === taskId
-                            ? 'Saving...'
-                            : 'Save Progress Note'}
+                            ? 'Saving Work & Proof...'
+                            : 'Save Progress & Proof 💾'}
                         </button>
                       </div>
 

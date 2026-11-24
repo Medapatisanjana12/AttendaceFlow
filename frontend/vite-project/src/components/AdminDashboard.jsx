@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import socket from '../socket';
-import { API_BASE_URL } from '../config';
+import { API_BASE_URL, BACKEND_URL } from '../config';
 
 export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [tasks, setTasks] = useState([]);
@@ -365,6 +365,24 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                       </div>
                     )}
 
+                    {m.proofsCount > 0 && (
+                      <div className="module-proofs-tag">
+                        <span className="proof-icon">📎</span>
+                        <span>{m.proofsCount} Proof{m.proofsCount > 1 ? 's' : ''} Attached</span>
+                        {m.latestProof && (
+                          <a
+                            href={m.latestProof.startsWith('/') ? `${BACKEND_URL}${m.latestProof}` : m.latestProof}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="module-proof-link"
+                            title="Open latest proof of work"
+                          >
+                            View Latest ↗
+                          </a>
+                        )}
+                      </div>
+                    )}
+
                     <div className="module-actions">
                       <button
                         type="button"
@@ -475,6 +493,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               <th>Assigned To</th>
               <th>Task & Instructions</th>
               <th>User Progress Note</th>
+              <th>Proof of Work</th>
               <th>Status</th>
               <th>Last Updated</th>
             </tr>
@@ -482,7 +501,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           <tbody>
             {visibleTasks.length === 0 ? (
               <tr>
-                <td colSpan="5" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
+                <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
                   No tasks match your current filter.
                 </td>
               </tr>
@@ -505,6 +524,21 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                         <span className="note-bubble">{task.userNote}</span>
                       ) : (
                         <span style={{ color: '#94a3b8' }}>No notes yet</span>
+                      )}
+                    </td>
+                    <td>
+                      {task.proofAttachment ? (
+                        <a
+                          href={task.proofAttachment.startsWith('/') ? `${BACKEND_URL}${task.proofAttachment}` : task.proofAttachment}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="admin-proof-badge"
+                          title={`Open proof: ${task.proofAttachment}`}
+                        >
+                          {task.proofAttachment.startsWith('/uploads/') ? '📄 View Document ↗' : '🔗 Open Link ↗'}
+                        </a>
+                      ) : (
+                        <span style={{ color: '#94a3b8', fontSize: '13px' }}>— No proof —</span>
                       )}
                     </td>
                     <td>
