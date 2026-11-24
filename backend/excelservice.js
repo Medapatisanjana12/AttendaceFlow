@@ -55,6 +55,8 @@ async function initExcel() {
         taskSheet.getColumn(7).width = 40;
         await workbook.xlsx.writeFile(FILE_PATH);
       }
+      await syncUserProgressSheet(workbook);
+      await workbook.xlsx.writeFile(FILE_PATH);
     } catch (e) {
       console.error('Error verifying existing tasks.xlsx header:', e);
     }
@@ -106,6 +108,7 @@ function registerUser({ name, email, password, role = 'user' }) {
     };
 
     sheet.addRow([newUser.id, newUser.name, newUser.email, passwordHash, newUser.role]);
+    await syncUserProgressSheet(workbook);
     await workbook.xlsx.writeFile(FILE_PATH);
     return newUser;
   });
@@ -233,6 +236,7 @@ function addTask(taskData) {
   newTask.userNote,
 ]);
 
+    await syncUserProgressSheet(workbook);
     await workbook.xlsx.writeFile(FILE_PATH);
     return newTask;
   });
@@ -266,9 +270,187 @@ function updateTask(taskId, { status, userNote }) {
     });
 
     if (updatedTask) {
+      await syncUserProgressSheet(workbook);
       await workbook.xlsx.writeFile(FILE_PATH);
     }
     return updatedTask;
+  });
+}
+
+// --- USER PROGRESS MODULES & STATS ---
+
+async function syncUserProgressSheet(workbook) {
+  const userSheet = workbook.getWorksheet('Users');
+  const taskSheet = workbook.getWorksheet('Tasks');
+  if (!userSheet || !taskSheet) return;
+
+  const tasks = [];
+  taskSheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    tasks.push({
+      id: row.getCell(1).value?.toString(),
+      assignedTo: (row.getCell(2).value?.toString() || '').trim().toLowerCase(),
+      title: row.getCell(3).value?.toString() || '',
+      description: row.getCell(4).value?.toString() || '',
+      status: row.getCell(5).value?.toString() || 'Pending',
+      updatedAt: row.getCell(6).value?.toString() || '',
+      userNote: row.getCell(7).value?.toString() || '',
+    });
+  });
+
+  let progressSheet = workbook.getWorksheet('UserProgress');
+  if (!progressSheet) {
+    progressSheet = workbook.addWorksheet('UserProgress');
+    progressSheet.columns = [
+      { header: 'userId', key: 'userId', width: 20 },
+      { header: 'name', key: 'name', width: 25 },
+      { header: 'email', key: 'email', width: 35 },
+      { header: 'totalAssigned', key: 'totalAssigned', width: 16 },
+      { header: 'completed', key: 'completed', width: 16 },
+      { header: 'inProgress', key: 'inProgress', width: 16 },
+      { header: 'incomplete', key: 'incomplete', width: 16 },
+      { header: 'progressPercent', key: 'progressPercent', width: 18 },
+      { header: 'lastUpdated', key: 'lastUpdated', width: 25 },
+    ];
+  } else {
+    const rowCount = progressSheet.rowCount;
+    for (let i = rowCount; i > 1; i--) {
+      progressSheet.spliceRows(i, 1);
+    }
+  }
+
+  const users = [];
+  userSheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    users.push({
+      id: row.getCell(1).value?.toString(),
+      name: row.getCell(2).value?.toString() || 'Team Member',
+      email: (row.getCell(3).value?.toString() || '').trim().toLowerCase(),
+      role: row.getCell(5).value?.toString(),
+    });
+  });
+
+  const knownEmails = new Set(users.map((u) => u.email));
+  tasks.forEach((t) => {
+    if (t.assignedTo && !knownEmails.has(t.assignedTo)) {
+      knownEmails.add(t.assignedTo);
+      users.push({
+        id: `unreg-${t.assignedTo}`,
+        name: t.assignedTo.split('@')[0],
+        email: t.assignedTo,
+        role: 'user',
+      });
+    }
+  });
+
+  users.forEach((user) => {
+    if (user.role === 'admin') return;
+
+    const userTasks = tasks.filter((t) => t.assignedTo === user.email);
+    const totalAssigned = userTasks.length;
+    const completed = userTasks.filter((t) => t.status === 'Completed').length;
+    const inProgress = userTasks.filter((t) => t.status === 'In Progress').length;
+    const incomplete = userTasks.filter((t) => (t.status || 'Pending') === 'Pending').length;
+    const progressPercent = totalAssigned > 0 ? `${Math.round((completed / totalAssigned) * 100)}%` : '0%';
+    const lastUpdated = new Date().toLocaleString();
+
+    progressSheet.addRow([
+      user.id,
+      user.name,
+      user.email,
+      totalAssigned,
+      completed,
+      inProgress,
+      incomplete,
+      progressPercent,
+      lastUpdated,
+    ]);
+  });
+}
+
+async function getAllUsers() {
+  await initExcel();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(FILE_PATH);
+  const userSheet = workbook.getWorksheet('Users');
+  const users = [];
+
+  if (userSheet) {
+    userSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      users.push({
+        id: row.getCell(1).value?.toString(),
+        name: row.getCell(2).value?.toString() || 'Team Member',
+        email: (row.getCell(3).value?.toString() || '').trim().toLowerCase(),
+        role: row.getCell(5).value?.toString(),
+      });
+    });
+  }
+  return users;
+}
+
+async function getUserProgressModules() {
+  await initExcel();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(FILE_PATH);
+
+  const users = [];
+  const userSheet = workbook.getWorksheet('Users');
+  if (userSheet) {
+    userSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      users.push({
+        id: row.getCell(1).value?.toString(),
+        name: row.getCell(2).value?.toString() || 'Team Member',
+        email: (row.getCell(3).value?.toString() || '').trim().toLowerCase(),
+        role: row.getCell(5).value?.toString(),
+      });
+    });
+  }
+
+  const tasks = await getAllTasks();
+
+  const knownEmails = new Set(users.map((u) => u.email));
+  tasks.forEach((t) => {
+    const email = (t.assignedTo || '').trim().toLowerCase();
+    if (email && !knownEmails.has(email)) {
+      knownEmails.add(email);
+      users.push({
+        id: `unreg-${email}`,
+        name: email.split('@')[0],
+        email,
+        role: 'user',
+      });
+    }
+  });
+
+  const memberUsers = users.filter((u) => u.role !== 'admin');
+
+  return memberUsers.map((user) => {
+    const userTasks = tasks.filter((t) => (t.assignedTo || '').toLowerCase() === user.email);
+    const totalAssigned = userTasks.length;
+    const completedTasks = userTasks.filter((t) => t.status === 'Completed');
+    const inProgressTasks = userTasks.filter((t) => t.status === 'In Progress');
+    const incompleteTasks = userTasks.filter((t) => (t.status || 'Pending') === 'Pending');
+    const progressPercent = totalAssigned > 0 ? Math.round((completedTasks.length / totalAssigned) * 100) : 0;
+
+    const tasksWithNotes = userTasks.filter((t) => t.userNote && t.userNote.trim());
+    const latestNoteTask = tasksWithNotes.length > 0 ? tasksWithNotes[tasksWithNotes.length - 1] : null;
+
+    return {
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      totalAssigned,
+      completedCount: completedTasks.length,
+      inProgressCount: inProgressTasks.length,
+      incompleteCount: incompleteTasks.length,
+      progressPercent,
+      latestNote: latestNoteTask ? latestNoteTask.userNote : '',
+      latestNoteTaskTitle: latestNoteTask ? latestNoteTask.title : '',
+      latestNoteDate: latestNoteTask ? latestNoteTask.updatedAt : '',
+      tasks: userTasks,
+    };
   });
 }
 
@@ -281,4 +463,7 @@ module.exports = {
   getAllTasks,
   addTask,
   updateTask,
+  getAllUsers,
+  getUserProgressModules,
+  syncUserProgressSheet,
 };

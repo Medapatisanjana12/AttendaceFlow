@@ -13,6 +13,8 @@ const {
   getAllTasks,
   addTask,
   updateTask,
+  getAllUsers,
+  getUserProgressModules,
 } = require('./excelservice');
 
 const app = express();
@@ -82,6 +84,7 @@ app.patch('/api/tasks/:id', async (req, res) => {
 
     // Notify Admin Dashboard
     io.to('admins').emit('status_updated', updatedTask);
+    io.to('admins').emit('user_modules_updated');
 
     // Notify the assigned user
     const userRoom = String(updatedTask.assignedTo)
@@ -156,6 +159,24 @@ app.patch('/api/admin/credentials', async (req, res) => {
   }
 });
 
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await getAllUsers();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+app.get('/api/admin/user-modules', async (req, res) => {
+  try {
+    const modules = await getUserProgressModules();
+    res.json(modules);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch user progress modules' });
+  }
+});
+
 // --- TASK ROUTES ---
 
 app.get('/api/tasks', async (req, res) => {
@@ -191,6 +212,7 @@ app.post('/api/tasks', async (req, res) => {
 
     io.to(newTask.assignedTo).emit('task_assigned', newTask);
     io.to('admins').emit('task_assigned', newTask);
+    io.to('admins').emit('user_modules_updated');
 
     res.status(201).json(newTask);
   } catch (err) {

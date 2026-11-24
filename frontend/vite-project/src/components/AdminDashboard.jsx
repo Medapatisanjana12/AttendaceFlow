@@ -11,6 +11,11 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [filterStatus, setFilterStatus] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Individual User Modules State
+  const [userModules, setUserModules] = useState([]);
+  const [selectedUserFilter, setSelectedUserFilter] = useState('All');
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+
   // Admin Credentials Modal State
   const [showSettings, setShowSettings] = useState(false);
   const [adminName, setAdminName] = useState(adminUser?.name || 'System Admin');
@@ -28,6 +33,17 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
     }
   }, [adminUser]);
 
+  const fetchUserModules = () => {
+    axios
+      .get(`${API_BASE_URL}/admin/user-modules`)
+      .then((res) => {
+        if (Array.isArray(res.data)) {
+          setUserModules(res.data);
+        }
+      })
+      .catch((err) => console.error('Error fetching user modules:', err));
+  };
+
   useEffect(() => {
     axios
       .get(`${API_BASE_URL}/tasks?role=admin`)
@@ -38,12 +54,15 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       })
       .catch((err) => console.error('Fetch error:', err));
 
+    fetchUserModules();
+
     socket.connect();
     socket.emit('join_room', { role: 'admin' });
 
     socket.on('task_assigned', (newTask) => {
       if (!newTask) return;
       setTasks((prev) => (prev.some((t) => t.id === newTask.id) ? prev : [...prev, newTask]));
+      fetchUserModules();
     });
 
     socket.on('status_updated', (updatedTask) => {
@@ -51,11 +70,17 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       setTasks((prev) =>
         prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
       );
+      fetchUserModules();
+    });
+
+    socket.on('user_modules_updated', () => {
+      fetchUserModules();
     });
 
     return () => {
       socket.off('task_assigned');
       socket.off('status_updated');
+      socket.off('user_modules_updated');
       socket.disconnect();
     };
   }, []);
@@ -137,8 +162,9 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
     const query = searchQuery.toLowerCase();
 
     const matchesStatus = filterStatus === 'All' || status === filterStatus;
+    const matchesUser = selectedUserFilter === 'All' || user === selectedUserFilter.toLowerCase();
     const matchesSearch = user.includes(query) || taskTitle.includes(query);
-    return matchesStatus && matchesSearch;
+    return matchesStatus && matchesUser && matchesSearch;
   });
 
   return (
@@ -226,16 +252,169 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         </div>
       </div>
 
+      {/* =====================================================
+          INDIVIDUAL USER PROGRESS MODULES
+      ===================================================== */}
+      <section className="user-modules-container">
+        <div className="modules-header-flex">
+          <div>
+            <span className="banner-tag">Team Progress Analytics</span>
+            <h2 className="modules-title">Individual Team Member Modules</h2>
+            <p className="modules-subtitle">
+              Live tracking for each member: total assigned, completed, in progress, and incomplete tasks saved in Excel.
+            </p>
+          </div>
+
+          <div className="modules-search-box">
+            <input
+              type="text"
+              placeholder="🔍 Search member name or email..."
+              value={memberSearchQuery}
+              onChange={(e) => setMemberSearchQuery(e.target.value)}
+              className="modules-search-input"
+            />
+            {selectedUserFilter !== 'All' && (
+              <button
+                className="btn-clear-user-filter"
+                onClick={() => setSelectedUserFilter('All')}
+                title="Clear member filter"
+              >
+                Clear Filter ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {userModules.length === 0 ? (
+          <div className="empty-modules-card">
+            <div className="empty-icon">👥</div>
+            <h4>No Team Members Found Yet</h4>
+            <p>Team members and their working modules will automatically appear here when registered or assigned tasks.</p>
+          </div>
+        ) : (
+          <div className="user-modules-grid">
+            {userModules
+              .filter((m) => {
+                if (!memberSearchQuery) return true;
+                const q = memberSearchQuery.toLowerCase();
+                return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+              })
+              .map((m) => {
+                const isSelected = selectedUserFilter === m.email;
+                const initials = (m.name || m.email)
+                  .split(' ')
+                  .map((w) => w[0])
+                  .join('')
+                  .toUpperCase()
+                  .slice(0, 2) || 'TM';
+
+                const progressTier =
+                  m.progressPercent >= 75 ? 'high' : m.progressPercent >= 35 ? 'med' : 'low';
+
+                return (
+                  <div
+                    key={m.userId || m.email}
+                    className={`user-module-card ${isSelected ? 'selected' : ''}`}
+                  >
+                    <div className="module-top">
+                      <div className="member-avatar">{initials}</div>
+                      <div className="member-meta">
+                        <h4>{m.name}</h4>
+                        <span className="member-email">{m.email}</span>
+                      </div>
+                      <span className={`progress-pill ${progressTier}`}>
+                        {m.progressPercent}% Done
+                      </span>
+                    </div>
+
+                    <div className="module-progress-bar-bg">
+                      <div
+                        className="module-progress-bar-fill"
+                        style={{ width: `${m.progressPercent}%` }}
+                      />
+                    </div>
+
+                    <div className="module-stats-grid">
+                      <div className="module-stat-tile assigned">
+                        <span className="stat-label">📋 Assigned</span>
+                        <span className="stat-val">{m.totalAssigned}</span>
+                      </div>
+                      <div className="module-stat-tile completed">
+                        <span className="stat-label">✅ Completed</span>
+                        <span className="stat-val">{m.completedCount}</span>
+                      </div>
+                      <div className="module-stat-tile in-progress">
+                        <span className="stat-label">⚡ In Progress</span>
+                        <span className="stat-val">{m.inProgressCount}</span>
+                      </div>
+                      <div className="module-stat-tile incomplete">
+                        <span className="stat-label">⏳ Incomplete</span>
+                        <span className="stat-val">{m.incompleteCount}</span>
+                      </div>
+                    </div>
+
+                    {m.latestNote ? (
+                      <div className="module-latest-note">
+                        <span className="note-tag">💬 Latest Note:</span>
+                        <p className="note-text">"{m.latestNote}"</p>
+                        <small className="note-task-ref">On: {m.latestNoteTaskTitle}</small>
+                      </div>
+                    ) : (
+                      <div className="module-latest-note empty">
+                        <small>No progress notes recorded yet</small>
+                      </div>
+                    )}
+
+                    <div className="module-actions">
+                      <button
+                        type="button"
+                        className={`btn-module-filter ${isSelected ? 'active' : ''}`}
+                        onClick={() => {
+                          setSelectedUserFilter(isSelected ? 'All' : m.email);
+                          const el = document.getElementById('tasks-master-table');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                      >
+                        {isSelected ? '✓ Showing Tasks' : '🔍 Filter Tasks'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-module-assign"
+                        onClick={() => {
+                          setAssignedTo(m.email);
+                          const el = document.getElementById('assign-task-form');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                        title={`Assign new task to ${m.name}`}
+                      >
+                        + Assign Task
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+      </section>
+
       {/* Assign Task Bento Card */}
-      <form onSubmit={handleAssignTask} className="card form-grid">
+      <form onSubmit={handleAssignTask} className="card form-grid" id="assign-task-form">
         <h3>+ Assign New Task</h3>
         <input
           type="email"
-          placeholder="Team Member Email (e.g. ravi@company.com)"
+          list="team-emails"
+          placeholder="Team Member Email (e.g. jessica12@gmail.com)"
           value={assignedTo}
           onChange={(e) => setAssignedTo(e.target.value)}
           required
         />
+        <datalist id="team-emails">
+          {userModules.map((m) => (
+            <option key={m.userId || m.email} value={m.email}>
+              {m.name} ({m.email})
+            </option>
+          ))}
+        </datalist>
         <input
           type="text"
           placeholder="Task Title"
@@ -253,7 +432,21 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       </form>
 
       {/* Filter & Search Bar + Master Table */}
-      <div className="card">
+      <div className="card" id="tasks-master-table">
+        {selectedUserFilter !== 'All' && (
+          <div className="active-user-filter-bar">
+            <span>
+              🔍 Showing tasks for team member: <strong>{selectedUserFilter}</strong> ({visibleTasks.length} task{visibleTasks.length !== 1 ? 's' : ''})
+            </span>
+            <button
+              type="button"
+              className="btn-clear-filter"
+              onClick={() => setSelectedUserFilter('All')}
+            >
+              Show All Members ✕
+            </button>
+          </div>
+        )}
         <div className="table-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
           <div className="filter-pills">
             {['All', 'Pending', 'In Progress', 'Completed'].map((status) => (
