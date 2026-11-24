@@ -111,6 +111,73 @@ function registerUser({ name, email, password, role = 'user' }) {
   });
 }
 
+function updateAdminCredentials({ currentEmail, name, newEmail, currentPassword, newPassword }) {
+  return enqueueWrite(async () => {
+    await initExcel();
+    const user = await findUserByEmail(currentEmail);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) {
+      throw new Error('Current password is incorrect');
+    }
+
+    const targetEmail = (newEmail || currentEmail).trim().toLowerCase();
+    if (newEmail && targetEmail !== currentEmail.trim().toLowerCase()) {
+      const existing = await findUserByEmail(targetEmail);
+      if (existing && existing.id !== user.id) {
+        throw new Error('New email address is already in use');
+      }
+    }
+
+    let passwordHashToSave = user.passwordHash;
+    if (newPassword && newPassword.trim()) {
+      if (newPassword.length < 6) {
+        throw new Error('New password must be at least 6 characters long');
+      }
+      passwordHashToSave = await bcrypt.hash(newPassword, 10);
+    }
+
+    const nameToSave = name && name.trim() ? name.trim() : user.name;
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(FILE_PATH);
+    const userSheet = workbook.getWorksheet('Users');
+
+    userSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      if (row.getCell(1).value?.toString() === user.id.toString()) {
+        row.getCell(2).value = nameToSave;
+        row.getCell(3).value = targetEmail;
+        row.getCell(4).value = passwordHashToSave;
+      }
+    });
+
+    if (targetEmail !== currentEmail.trim().toLowerCase()) {
+      const taskSheet = workbook.getWorksheet('Tasks');
+      if (taskSheet) {
+        taskSheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return;
+          if (row.getCell(2).value?.toString().toLowerCase() === currentEmail.trim().toLowerCase()) {
+            row.getCell(2).value = targetEmail;
+          }
+        });
+      }
+    }
+
+    await workbook.xlsx.writeFile(FILE_PATH);
+
+    return {
+      id: user.id,
+      name: nameToSave,
+      email: targetEmail,
+      role: user.role,
+    };
+  });
+}
+
 // --- TASK FUNCTIONS ---
 
 async function getAllTasks() {
@@ -210,6 +277,7 @@ module.exports = {
   initExcel,
   findUserByEmail,
   registerUser,
+  updateAdminCredentials,
   getAllTasks,
   addTask,
   updateTask,

@@ -3,13 +3,30 @@ import axios from 'axios';
 import socket from '../socket';
 import { API_BASE_URL } from '../config';
 
-export default function AdminDashboard({ onLogout }) {
+export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [tasks, setTasks] = useState([]);
   const [assignedTo, setAssignedTo] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Admin Credentials Modal State
+  const [showSettings, setShowSettings] = useState(false);
+  const [adminName, setAdminName] = useState(adminUser?.name || 'System Admin');
+  const [adminEmail, setAdminEmail] = useState(adminUser?.email || 'admin@company.com');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [settingsMsg, setSettingsMsg] = useState({ type: '', text: '' });
+  const [isUpdatingCredentials, setIsUpdatingCredentials] = useState(false);
+
+  useEffect(() => {
+    if (adminUser) {
+      setAdminName(adminUser.name || 'System Admin');
+      setAdminEmail(adminUser.email || 'admin@company.com');
+    }
+  }, [adminUser]);
 
   useEffect(() => {
     axios
@@ -61,6 +78,52 @@ export default function AdminDashboard({ onLogout }) {
     }
   };
 
+  const handleUpdateCredentials = async (e) => {
+    e.preventDefault();
+    setSettingsMsg({ type: '', text: '' });
+
+    if (!currentPassword) {
+      setSettingsMsg({ type: 'error', text: 'Please enter your current password to authorize changes.' });
+      return;
+    }
+
+    if (newPassword && newPassword.length < 6) {
+      setSettingsMsg({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+
+    if (newPassword && newPassword !== confirmPassword) {
+      setSettingsMsg({ type: 'error', text: 'New password and confirmation do not match.' });
+      return;
+    }
+
+    setIsUpdatingCredentials(true);
+    try {
+      const res = await axios.patch(`${API_BASE_URL}/admin/credentials`, {
+        currentEmail: adminUser?.email || 'admin@company.com',
+        name: adminName,
+        newEmail: adminEmail,
+        currentPassword,
+        newPassword: newPassword || undefined,
+      });
+
+      setSettingsMsg({ type: 'success', text: 'Admin credentials updated successfully in tasks.xlsx!' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      if (onUpdateAdmin) {
+        onUpdateAdmin(res.data);
+      }
+    } catch (err) {
+      setSettingsMsg({
+        type: 'error',
+        text: err.response?.data?.error || 'Failed to update admin credentials',
+      });
+    } finally {
+      setIsUpdatingCredentials(false);
+    }
+  };
+
   const completedCount = tasks.filter((t) => t?.status === 'Completed').length;
   const inProgressCount = tasks.filter((t) => t?.status === 'In Progress').length;
   const pendingCount = tasks.filter((t) => (t?.status || 'Pending') === 'Pending').length;
@@ -97,6 +160,19 @@ export default function AdminDashboard({ onLogout }) {
 
         <div className="header-actions">
           <span className="live-indicator">● Live Sync Active</span>
+          <button
+            onClick={() => {
+              setShowSettings(true);
+              setSettingsMsg({ type: '', text: '' });
+              setCurrentPassword('');
+              setNewPassword('');
+              setConfirmPassword('');
+            }}
+            className="btn-settings"
+            title="Update Admin Credentials"
+          >
+            ⚙️ Admin Credentials
+          </button>
           <button onClick={onLogout} className="btn-logout">Logout</button>
         </div>
       </header>
@@ -110,6 +186,9 @@ export default function AdminDashboard({ onLogout }) {
             Assign tasks to team members and watch their progress notes and status
             updates appear in real time.
           </p>
+          <div className="admin-profile-pill">
+            👤 Logged in as: <strong>{adminUser?.name || 'System Admin'}</strong> ({adminUser?.email || 'admin@company.com'})
+          </div>
         </div>
 
         <svg width="180" height="110" viewBox="0 0 180 110" fill="none">
@@ -248,6 +327,105 @@ export default function AdminDashboard({ onLogout }) {
           </tbody>
         </table>
       </div>
+
+      {/* Admin Credentials Modal */}
+      {showSettings && (
+        <div className="modal-overlay" onClick={() => setShowSettings(false)}>
+          <div className="admin-settings-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>Company Admin Credentials</h3>
+                <p>Update administrator login details saved in the master Excel store</p>
+              </div>
+              <button className="btn-close" onClick={() => setShowSettings(false)}>✕</button>
+            </div>
+
+            {settingsMsg.text && (
+              <div className={`settings-alert ${settingsMsg.type}`}>
+                {settingsMsg.type === 'success' ? '✓ ' : '⚠️ '}
+                {settingsMsg.text}
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateCredentials} className="settings-form">
+              <div className="form-group">
+                <label>Admin Display Name</label>
+                <input
+                  type="text"
+                  required
+                  value={adminName}
+                  onChange={(e) => setAdminName(e.target.value)}
+                  placeholder="e.g. System Admin"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Admin Email (Login ID)</label>
+                <input
+                  type="email"
+                  required
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  placeholder="e.g. admin@company.com"
+                />
+              </div>
+
+              <div className="form-divider">
+                <span>Security Authorization</span>
+              </div>
+
+              <div className="form-group">
+                <label>Current Password <span className="required-star">*</span></label>
+                <input
+                  type="password"
+                  required
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password to authorize"
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>New Password (Optional)</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Min 6 characters"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Confirm New Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                  />
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  onClick={() => setShowSettings(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-save"
+                  disabled={isUpdatingCredentials}
+                >
+                  {isUpdatingCredentials ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

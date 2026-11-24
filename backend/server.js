@@ -9,6 +9,7 @@ const {
   initExcel,
   findUserByEmail,
   registerUser,
+  updateAdminCredentials,
   getAllTasks,
   addTask,
   updateTask,
@@ -131,6 +132,27 @@ app.post('/api/login', async (req, res) => {
     res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
   } catch (err) {
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.patch('/api/admin/credentials', async (req, res) => {
+  try {
+    const { currentEmail, name, newEmail, currentPassword, newPassword } = req.body;
+    if (!currentEmail || !currentPassword) {
+      return res.status(400).json({ error: 'Current email and current password are required' });
+    }
+
+    const updatedUser = await updateAdminCredentials({
+      currentEmail,
+      name,
+      newEmail,
+      currentPassword,
+      newPassword,
+    });
+
+    res.json(updatedUser);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to update admin credentials' });
   }
 });
 

@@ -72,7 +72,13 @@ export default function App() {
   };
 
   if (currentUser?.role === 'admin') {
-    return <AdminDashboard onLogout={handleLogout} />;
+    return (
+      <AdminDashboard
+        adminUser={currentUser}
+        onUpdateAdmin={setCurrentUser}
+        onLogout={handleLogout}
+      />
+    );
   }
 
   if (currentUser?.role === 'user') {
