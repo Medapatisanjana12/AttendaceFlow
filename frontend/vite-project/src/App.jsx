@@ -12,6 +12,7 @@ export default function App() {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
 
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -22,6 +23,8 @@ export default function App() {
     setIsRegisterMode(false);
     setError('');
     setSuccessMsg('');
+    setName('');
+    setUsername('');
     setEmail('');
     setPassword('');
   };
@@ -35,12 +38,14 @@ export default function App() {
       if (isRegisterMode && loginPortal === 'user') {
         await axios.post(`${API_BASE_URL}/register`, {
           name,
+          username,
           email,
           password,
         });
-        setSuccessMsg('Account created! Please sign in.');
+        setSuccessMsg('Account created successfully! Please sign in with your email or username.');
         setIsRegisterMode(false);
         setPassword('');
+        setUsername('');
       } else {
         const res = await axios.post(`${API_BASE_URL}/login`, {
           email: email.trim(),
@@ -72,6 +77,8 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setName('');
+    setUsername('');
     setEmail('');
     setPassword('');
     setError('');
@@ -89,7 +96,7 @@ export default function App() {
   }
 
   if (currentUser?.role === 'user') {
-    return <UserDashboard userEmail={currentUser.email} onLogout={handleLogout} />;
+    return <UserDashboard userEmail={currentUser.email} currentUser={currentUser} onLogout={handleLogout} />;
   }
 
   return (
@@ -181,24 +188,37 @@ export default function App() {
 
           <form onSubmit={handleSubmit} className="auth-form">
             {isRegisterMode && loginPortal === 'user' && (
-              <div className="input-group">
-                <label>Full Name</label>
-                <input
-                  type="text"
-                  placeholder="Ravi Kumar"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </div>
+              <>
+                <div className="input-group">
+                  <label>Full Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Jessica Taylor"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label>Username</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. jessica (unique handle)"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                  />
+                </div>
+              </>
             )}
 
             <div className="input-group">
-              <label>{loginPortal === 'admin' ? 'Admin Email' : 'Work Email'}</label>
+              <label>{loginPortal === 'admin' ? 'Admin Email' : 'Work Email or Username'}</label>
               <input
-                type="email"
+                type={loginPortal === 'admin' ? 'email' : 'text'}
                 placeholder={
-                  loginPortal === 'admin' ? 'admin@company.com' : 'ravi@company.com'
+                  loginPortal === 'admin' ? 'admin@company.com' : 'jessica or jessica12@gmail.com'
                 }
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -237,7 +257,7 @@ export default function App() {
             </div>
           ) : !isRegisterMode ? (
             <div className="demo-hint">
-              Demo Member: <strong>jessica12@gmail.com</strong> / <strong>user123</strong> (or click Create Account)
+              Demo Member: <strong>jessica</strong> (or <strong>jessica12@gmail.com</strong>) / <strong>user123</strong>
             </div>
           ) : null}
         </div>

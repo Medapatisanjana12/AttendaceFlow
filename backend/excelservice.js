@@ -49,6 +49,7 @@ async function initExcel() {
       { header: 'updatedAt', key: 'updatedAt', width: 25 },
       { header: 'userNote', key: 'userNote', width: 40 },
       { header: 'proofAttachment', key: 'proofAttachment', width: 45 },
+      { header: 'assignedToEmail', key: 'assignedToEmail', width: 30 },
     ];
 
     // Sheet 2: Users
@@ -59,13 +60,14 @@ async function initExcel() {
       { header: 'email', key: 'email', width: 30 },
       { header: 'passwordHash', key: 'passwordHash', width: 65 },
       { header: 'role', key: 'role', width: 15 },
+      { header: 'username', key: 'username', width: 25 },
     ];
 
     // Seed default Admin account and default user
     const defaultAdminHash = await bcrypt.hash('admin123', 10);
     const defaultUserHash = await bcrypt.hash('user123', 10);
-    userSheet.addRow(['1', 'System Admin', 'admin@company.com', defaultAdminHash, 'admin']);
-    userSheet.addRow(['2', 'Jessica Taylor', 'jessica12@gmail.com', defaultUserHash, 'user']);
+    userSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin']);
+    userSheet.addRow(['2', 'Jessica Taylor', 'jessica12@gmail.com', defaultUserHash, 'user', 'jessica']);
 
     await workbook.xlsx.writeFile(FILE_PATH);
     console.log('Created tasks.xlsx with Tasks and Users sheets');
@@ -87,6 +89,11 @@ async function initExcel() {
           taskSheet.getColumn(8).width = 45;
           needsSave = true;
         }
+        if (taskSheet.getCell(1, 9).value !== 'assignedToEmail') {
+          taskSheet.getCell(1, 9).value = 'assignedToEmail';
+          taskSheet.getColumn(9).width = 30;
+          needsSave = true;
+        }
       }
 
       const userSheet = workbook.getWorksheet('Users');
@@ -98,10 +105,17 @@ async function initExcel() {
           { header: 'email', key: 'email', width: 30 },
           { header: 'passwordHash', key: 'passwordHash', width: 65 },
           { header: 'role', key: 'role', width: 15 },
+          { header: 'username', key: 'username', width: 25 },
         ];
         const defaultAdminHash = await bcrypt.hash('admin123', 10);
-        newUsersSheet.addRow(['1', 'System Admin', 'admin@company.com', defaultAdminHash, 'admin']);
+        newUsersSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin']);
         needsSave = true;
+      } else {
+        if (userSheet.getCell(1, 6).value !== 'username') {
+          userSheet.getCell(1, 6).value = 'username';
+          userSheet.getColumn(6).width = 25;
+          needsSave = true;
+        }
       }
 
       if (needsSave) {
@@ -117,8 +131,8 @@ async function initExcel() {
 
 // --- USER AUTH FUNCTIONS ---
 
-async function findUserByEmail(email) {
-  if (!email || typeof email !== 'string') return null;
+async function findUserByNameOrEmail(identifier) {
+  if (!identifier || typeof identifier !== 'string') return null;
   await initExcel();
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(FILE_PATH);
@@ -126,28 +140,53 @@ async function findUserByEmail(email) {
   if (!sheet) return null;
   let foundUser = null;
 
-  const targetEmail = email.trim().toLowerCase();
+  const target = identifier.trim().toLowerCase();
   sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
+    if (rowNumber === 1 || foundUser) return;
+    const rowName = getCellValueString(row.getCell(2)).toLowerCase();
     const rowEmail = getCellValueString(row.getCell(3)).toLowerCase();
-    if (rowEmail === targetEmail) {
+    const rowUsername = getCellValueString(row.getCell(6)).toLowerCase();
+
+    const isMatch =
+      rowEmail === target ||
+      (rowUsername && rowUsername === target) ||
+      rowName === target ||
+      (rowName && target.length >= 3 && target.includes(rowName)) ||
+      (rowName && rowName.length >= 3 && rowName.includes(target));
+
+    if (isMatch) {
       foundUser = {
         id: getCellValueString(row.getCell(1)),
         name: getCellValueString(row.getCell(2)) || 'User',
         email: rowEmail,
         passwordHash: getCellValueString(row.getCell(4)),
         role: getCellValueString(row.getCell(5)) || 'user',
+        username: rowUsername || rowName.replace(/\s+/g, '_'),
       };
     }
   });
   return foundUser;
 }
 
-function registerUser({ name, email, password, role = 'user' }) {
+async function findUserByEmail(email) {
+  return findUserByNameOrEmail(email);
+}
+
+function registerUser({ name, username, email, password, role = 'user' }) {
   return enqueueWrite(async () => {
-    const existing = await findUserByEmail(email);
-    if (existing) {
-      throw new Error('Email already registered');
+    const existingEmail = await findUserByNameOrEmail(email);
+    if (existingEmail) {
+      throw new Error('Email is already registered');
+    }
+
+    const cleanUsername = (username || name || email.split('@')[0])
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-zA-Z0-9_-]/g, '');
+
+    const existingUsername = await findUserByNameOrEmail(cleanUsername);
+    if (existingUsername) {
+      throw new Error('Username is already taken, please choose another');
     }
 
     const workbook = new ExcelJS.Workbook();
@@ -158,11 +197,20 @@ function registerUser({ name, email, password, role = 'user' }) {
     const newUser = {
       id: Date.now().toString(),
       name: name.trim(),
+      username: cleanUsername,
       email: email.trim().toLowerCase(),
       role,
     };
 
-    sheet.addRow([newUser.id, newUser.name, newUser.email, passwordHash, newUser.role]);
+    sheet.addRow([
+      newUser.id,
+      newUser.name,
+      newUser.email,
+      passwordHash,
+      newUser.role,
+      newUser.username,
+    ]);
+
     await syncUserProgressSheet(workbook);
     await workbook.xlsx.writeFile(FILE_PATH);
     return newUser;
@@ -247,18 +295,36 @@ async function getAllTasks() {
   const sheet = workbook.getWorksheet('Tasks');
   const tasks = [];
 
+  // Build a lookup map of user email -> name so legacy tasks show the User's Name
+  const userSheet = workbook.getWorksheet('Users');
+  const emailToName = {};
+  if (userSheet) {
+    userSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const uName = getCellValueString(row.getCell(2));
+      const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
+      if (uEmail && uName) emailToName[uEmail] = uName;
+    });
+  }
+
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
 
+    const rawAssigned = getCellValueString(row.getCell(2));
+    const assignedEmail = getCellValueString(row.getCell(9)) || (rawAssigned.includes('@') ? rawAssigned.toLowerCase() : '');
+    // If assignedTo is an email, convert to user name if known
+    const displayName = emailToName[rawAssigned.toLowerCase()] || rawAssigned;
+
     tasks.push({
-      id: row.getCell(1).value?.toString(),
-      assignedTo: row.getCell(2).value?.toString(),
-      title: row.getCell(3).value?.toString(),
-      description: row.getCell(4).value?.toString() || '',
-      status: row.getCell(5).value?.toString(),
-      updatedAt: row.getCell(6).value?.toString(),
-      userNote: row.getCell(7).value?.toString() || '',
-      proofAttachment: row.getCell(8).value?.toString() || '',
+      id: getCellValueString(row.getCell(1)),
+      assignedTo: displayName,
+      title: getCellValueString(row.getCell(3)),
+      description: getCellValueString(row.getCell(4)),
+      status: getCellValueString(row.getCell(5)) || 'Pending',
+      updatedAt: getCellValueString(row.getCell(6)),
+      userNote: getCellValueString(row.getCell(7)),
+      proofAttachment: getCellValueString(row.getCell(8)),
+      assignedToEmail: assignedEmail,
     });
   });
 
@@ -272,27 +338,34 @@ function addTask(taskData) {
     await workbook.xlsx.readFile(FILE_PATH);
     const sheet = workbook.getWorksheet('Tasks');
 
+    // Resolve user to store the User's Display Name in assignedTo
+    const user = await findUserByNameOrEmail(taskData.assignedTo);
+    const assignedName = user ? user.name : taskData.assignedTo.trim();
+    const assignedEmail = user ? user.email : (taskData.assignedTo.includes('@') ? taskData.assignedTo.trim().toLowerCase() : '');
+
     const newTask = {
-  id: Date.now().toString(),
-  assignedTo: taskData.assignedTo.trim().toLowerCase(),
-  title: taskData.title,
-  description: taskData.description || '',
-  status: 'Pending',
-  updatedAt: new Date().toLocaleString(),
-  userNote: '',
-  proofAttachment: taskData.proofAttachment || '',
-};
+      id: Date.now().toString(),
+      assignedTo: assignedName,
+      title: taskData.title,
+      description: taskData.description || '',
+      status: 'Pending',
+      updatedAt: new Date().toLocaleString(),
+      userNote: '',
+      proofAttachment: taskData.proofAttachment || '',
+      assignedToEmail: assignedEmail,
+    };
 
     sheet.addRow([
-  newTask.id,
-  newTask.assignedTo,
-  newTask.title,
-  newTask.description,
-  newTask.status,
-  newTask.updatedAt,
-  newTask.userNote,
-  newTask.proofAttachment,
-]);
+      newTask.id,
+      newTask.assignedTo,
+      newTask.title,
+      newTask.description,
+      newTask.status,
+      newTask.updatedAt,
+      newTask.userNote,
+      newTask.proofAttachment,
+      newTask.assignedToEmail,
+    ]);
 
     await syncUserProgressSheet(workbook);
     await workbook.xlsx.writeFile(FILE_PATH);
@@ -439,10 +512,14 @@ async function getAllUsers() {
   if (userSheet) {
     userSheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
+      const uName = getCellValueString(row.getCell(2)) || 'Team Member';
+      const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
+      const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
       users.push({
         id: getCellValueString(row.getCell(1)),
-        name: getCellValueString(row.getCell(2)) || 'Team Member',
-        email: getCellValueString(row.getCell(3)).toLowerCase(),
+        name: uName,
+        username: uUsername,
+        email: uEmail,
         role: getCellValueString(row.getCell(5)) || 'user',
       });
     });
@@ -460,10 +537,14 @@ async function getUserProgressModules() {
   if (userSheet) {
     userSheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
+      const uName = getCellValueString(row.getCell(2)) || 'Team Member';
+      const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
+      const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
       users.push({
         id: getCellValueString(row.getCell(1)),
-        name: getCellValueString(row.getCell(2)) || 'Team Member',
-        email: getCellValueString(row.getCell(3)).toLowerCase(),
+        name: uName,
+        username: uUsername,
+        email: uEmail,
         role: getCellValueString(row.getCell(5)) || 'user',
       });
     });
@@ -471,15 +552,19 @@ async function getUserProgressModules() {
 
   const tasks = await getAllTasks();
 
-  const knownEmails = new Set(users.map((u) => u.email));
+  const knownIdentifiers = new Set(users.map((u) => u.email).concat(users.map((u) => u.name.toLowerCase())));
   tasks.forEach((t) => {
-    const email = (t.assignedTo || '').trim().toLowerCase();
-    if (email && !knownEmails.has(email)) {
-      knownEmails.add(email);
+    const rawAssigned = (t.assignedTo || '').trim();
+    if (rawAssigned && !knownIdentifiers.has(rawAssigned.toLowerCase())) {
+      knownIdentifiers.add(rawAssigned.toLowerCase());
+      const isEmail = rawAssigned.includes('@');
+      const fallbackName = isEmail ? rawAssigned.split('@')[0] : rawAssigned;
+      const fallbackEmail = t.assignedToEmail || (isEmail ? rawAssigned.toLowerCase() : `${rawAssigned.toLowerCase().replace(/\s+/g, '')}@company.com`);
       users.push({
-        id: `unreg-${email}`,
-        name: email.split('@')[0],
-        email,
+        id: `unreg-${rawAssigned}`,
+        name: fallbackName,
+        username: fallbackName.toLowerCase().replace(/\s+/g, '_'),
+        email: fallbackEmail,
         role: 'user',
       });
     }
@@ -488,7 +573,21 @@ async function getUserProgressModules() {
   const memberUsers = users.filter((u) => u.role !== 'admin');
 
   return memberUsers.map((user) => {
-    const userTasks = tasks.filter((t) => (t.assignedTo || '').toLowerCase() === user.email);
+    const uEmail = (user.email || '').toLowerCase();
+    const uName = (user.name || '').toLowerCase();
+    const uUsername = (user.username || '').toLowerCase();
+
+    const userTasks = tasks.filter((t) => {
+      const assigned = (t.assignedTo || '').toLowerCase();
+      const assignedEmail = (t.assignedToEmail || '').toLowerCase();
+      return (
+        assigned === uName ||
+        assigned === uEmail ||
+        (uUsername && assigned === uUsername) ||
+        (assignedEmail && assignedEmail === uEmail)
+      );
+    });
+
     const totalAssigned = userTasks.length;
     const completedTasks = userTasks.filter((t) => t.status === 'Completed');
     const inProgressTasks = userTasks.filter((t) => t.status === 'In Progress');
@@ -502,6 +601,7 @@ async function getUserProgressModules() {
     return {
       userId: user.id,
       name: user.name,
+      username: user.username,
       email: user.email,
       totalAssigned,
       completedCount: completedTasks.length,
@@ -522,6 +622,7 @@ async function getUserProgressModules() {
 module.exports = {
   initExcel,
   findUserByEmail,
+  findUserByNameOrEmail,
   registerUser,
   updateAdminCredentials,
   getAllTasks,

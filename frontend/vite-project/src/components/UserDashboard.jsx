@@ -144,7 +144,7 @@ function StatusBadge({ status }) {
   );
 }
 
-export default function UserDashboard({ userEmail, onLogout }) {
+export default function UserDashboard({ userEmail, currentUser, onLogout }) {
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState({});
   const [proofs, setProofs] = useState({});
@@ -156,9 +156,7 @@ export default function UserDashboard({ userEmail, onLogout }) {
   const [error, setError] = useState('');
   const [savingTask, setSavingTask] = useState(null);
 
-  const userName = userEmail
-    ? userEmail.split('@')[0]
-    : 'User';
+  const userName = currentUser?.name || (userEmail ? userEmail.split('@')[0] : 'User');
 
   // Fetch tasks and listen for live updates
   useEffect(() => {

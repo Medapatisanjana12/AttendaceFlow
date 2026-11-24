@@ -8,6 +8,7 @@ const fs = require('fs');
 const {
   initExcel,
   findUserByEmail,
+  findUserByNameOrEmail,
   registerUser,
   updateAdminCredentials,
   getAllTasks,
@@ -45,14 +46,19 @@ app.use('/uploads', express.static(uploadsDir));
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  socket.on('join_room', ({ role, email }) => {
+  socket.on('join_room', async ({ role, email }) => {
     if (role === 'admin') {
       socket.join('admins');
       console.log('Admin joined admins room');
     } else if (email) {
       const userRoom = email.trim().toLowerCase();
       socket.join(userRoom);
-      console.log(`User joined room: ${userRoom}`);
+      const user = await findUserByNameOrEmail(userRoom);
+      if (user) {
+        if (user.name) socket.join(user.name.trim().toLowerCase());
+        if (user.username) socket.join(user.username.trim().toLowerCase());
+      }
+      console.log(`User joined room: ${userRoom} (Name: ${user?.name || 'n/a'})`);
     }
   });
 
@@ -103,6 +109,9 @@ app.patch('/api/tasks/:id', async (req, res) => {
       .toLowerCase();
 
     io.to(userRoom).emit('status_updated', updatedTask);
+    if (updatedTask.assignedToEmail) {
+      io.to(updatedTask.assignedToEmail.toLowerCase()).emit('status_updated', updatedTask);
+    }
 
     res.json(updatedTask);
 
@@ -140,11 +149,11 @@ app.post('/api/upload', (req, res) => {
 
 app.post('/api/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, username, email, password } = req.body;
     if (!name || !email || !password) {
-      return res.status(400).json({ error: 'All fields are required' });
+      return res.status(400).json({ error: 'Name, email, and password are required' });
     }
-    const user = await registerUser({ name, email, password, role: 'user' });
+    const user = await registerUser({ name, username, email, password, role: 'user' });
     res.status(201).json(user);
   } catch (err) {
     res.status(400).json({ error: err.message || 'Registration failed' });
@@ -155,21 +164,21 @@ app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
-      return res.status(400).json({ error: 'Please enter both email and password' });
+      return res.status(400).json({ error: 'Please enter both email/username and password' });
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
-    const user = await findUserByEmail(cleanEmail);
+    const cleanIdentifier = String(email).trim().toLowerCase();
+    const user = await findUserByNameOrEmail(cleanIdentifier);
     if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid email/username or password' });
     }
 
     const isMatch = await bcrypt.compare(String(password), user.passwordHash);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid email/username or password' });
     }
 
-    res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+    res.json({ id: user.id, name: user.name, username: user.username, email: user.email, role: user.role });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed: ' + (err.message || 'Server error') });
@@ -227,12 +236,24 @@ app.get('/api/tasks', async (req, res) => {
     }
 
     if (!email) {
-      return res.status(400).json({ error: 'User email is required' });
+      return res.status(400).json({ error: 'User email or identifier is required' });
     }
 
-    const userTasks = allTasks.filter(
-      (t) => t.assignedTo === email.trim().toLowerCase()
-    );
+    const user = await findUserByNameOrEmail(email);
+    const targetEmail = String(email).trim().toLowerCase();
+    const targetName = user?.name ? user.name.trim().toLowerCase() : '';
+    const targetUsername = user?.username ? user.username.trim().toLowerCase() : '';
+
+    const userTasks = allTasks.filter((t) => {
+      const assigned = (t.assignedTo || '').trim().toLowerCase();
+      const assignedEmail = (t.assignedToEmail || '').trim().toLowerCase();
+      return (
+        assigned === targetEmail ||
+        assignedEmail === targetEmail ||
+        (targetName && assigned === targetName) ||
+        (targetUsername && assigned === targetUsername)
+      );
+    });
     res.json(userTasks);
   } catch (err) {
     res.status(500).json({ error: 'Failed to load tasks from Excel' });
@@ -248,7 +269,14 @@ app.post('/api/tasks', async (req, res) => {
 
     const newTask = await addTask({ assignedTo, title, description });
 
-    io.to(newTask.assignedTo).emit('task_assigned', newTask);
+    // Look up user to broadcast to their rooms
+    const user = await findUserByNameOrEmail(assignedTo);
+    if (user) {
+      if (user.email) io.to(user.email).emit('task_assigned', newTask);
+      if (user.username) io.to(user.username).emit('task_assigned', newTask);
+      if (user.name) io.to(user.name.toLowerCase()).emit('task_assigned', newTask);
+    }
+    io.to(newTask.assignedTo.toLowerCase()).emit('task_assigned', newTask);
     io.to('admins').emit('task_assigned', newTask);
     io.to('admins').emit('user_modules_updated');
 

@@ -162,8 +162,18 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
     const query = searchQuery.toLowerCase();
 
     const matchesStatus = filterStatus === 'All' || status === filterStatus;
-    const matchesUser = selectedUserFilter === 'All' || user === selectedUserFilter.toLowerCase();
-    const matchesSearch = user.includes(query) || taskTitle.includes(query);
+    const filterLower = selectedUserFilter.toLowerCase();
+    const assignedLower = user;
+    const assignedEmailLower = (t.assignedToEmail || '').toLowerCase();
+    const matchesUser =
+      selectedUserFilter === 'All' ||
+      assignedLower === filterLower ||
+      assignedEmailLower === filterLower;
+
+    const matchesSearch =
+      user.includes(query) ||
+      taskTitle.includes(query) ||
+      assignedEmailLower.includes(query);
     return matchesStatus && matchesUser && matchesSearch;
   });
 
@@ -300,7 +310,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
               })
               .map((m) => {
-                const isSelected = selectedUserFilter === m.email;
+                const isSelected = selectedUserFilter === m.name || selectedUserFilter === m.email;
                 const initials = (m.name || m.email)
                   .split(' ')
                   .map((w) => w[0])
@@ -388,7 +398,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                         type="button"
                         className={`btn-module-filter ${isSelected ? 'active' : ''}`}
                         onClick={() => {
-                          setSelectedUserFilter(isSelected ? 'All' : m.email);
+                          setSelectedUserFilter(isSelected ? 'All' : (m.name || m.email));
                           const el = document.getElementById('tasks-master-table');
                           if (el) el.scrollIntoView({ behavior: 'smooth' });
                         }}
@@ -399,7 +409,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                         type="button"
                         className="btn-module-assign"
                         onClick={() => {
-                          setAssignedTo(m.email);
+                          setAssignedTo(m.name || m.email);
                           const el = document.getElementById('assign-task-form');
                           if (el) el.scrollIntoView({ behavior: 'smooth' });
                         }}
@@ -419,17 +429,17 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       <form onSubmit={handleAssignTask} className="card form-grid" id="assign-task-form">
         <h3>+ Assign New Task</h3>
         <input
-          type="email"
-          list="team-emails"
-          placeholder="Team Member Email (e.g. jessica12@gmail.com)"
+          type="text"
+          list="team-names"
+          placeholder="Team Member Name (e.g. Jessica Taylor)"
           value={assignedTo}
           onChange={(e) => setAssignedTo(e.target.value)}
           required
         />
-        <datalist id="team-emails">
+        <datalist id="team-names">
           {userModules.map((m) => (
-            <option key={m.userId || m.email} value={m.email}>
-              {m.name} ({m.email})
+            <option key={m.userId || m.email} value={m.name}>
+              {m.name} {m.username ? `(@${m.username})` : ''} — {m.email}
             </option>
           ))}
         </datalist>
