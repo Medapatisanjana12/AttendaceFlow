@@ -350,7 +350,7 @@ export default function UserDashboard({ userEmail, onLogout }) {
         <div className="brand">
           <div className="brand-icon">✓</div>
           <div>
-            <span className="brand-name">TaskFlow</span>
+            <span className="brand-name">Workly</span>
             <small className="brand-subtitle">Member Workspace</small>
           </div>
         </div>
@@ -687,7 +687,7 @@ export default function UserDashboard({ userEmail, onLogout }) {
       </main>
 
       <footer className="user-footer">
-        <span>TaskFlow Workspace</span>
+        <span>Workly Workspace</span>
         <span>Powered by AIMarkvent</span>
       </footer>
     </div>

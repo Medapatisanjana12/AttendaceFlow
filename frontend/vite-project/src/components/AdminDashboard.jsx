@@ -90,7 +90,7 @@ export default function AdminDashboard({ onLogout }) {
             <path d="M24.5 19.5L26.2 21.2L29.5 17.5" stroke="#F16F28" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span style={{ fontWeight: 800, fontSize: '21px', color: '#242158' }}>
-            TaskFlow
+            Workly
           </span>
         </div>
 
