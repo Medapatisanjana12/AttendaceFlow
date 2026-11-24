@@ -17,16 +17,8 @@ function enqueueWrite(fn) {
 async function initExcel() {
   if (!fs.existsSync(FILE_PATH)) {
     const workbook = new ExcelJS.Workbook();
-await workbook.xlsx.readFile(FILE_PATH);
-
-const taskSheet = workbook.getWorksheet('Tasks');
-if (taskSheet && taskSheet.getCell(1, 7).value !== 'userNote') {
-  taskSheet.getCell(1, 7).value = 'userNote';
-  taskSheet.getColumn(7).width = 40;
-  await workbook.xlsx.writeFile(FILE_PATH);
-}
     // Sheet 1: Tasks
-    
+    const taskSheet = workbook.addWorksheet('Tasks');
     taskSheet.columns = [
       { header: 'id', key: 'id', width: 20 },
       { header: 'assignedTo', key: 'assignedTo', width: 25 },
@@ -34,6 +26,7 @@ if (taskSheet && taskSheet.getCell(1, 7).value !== 'userNote') {
       { header: 'description', key: 'description', width: 40 },
       { header: 'status', key: 'status', width: 15 },
       { header: 'updatedAt', key: 'updatedAt', width: 25 },
+      { header: 'userNote', key: 'userNote', width: 40 },
     ];
 
     // Sheet 2: Users
@@ -52,6 +45,19 @@ if (taskSheet && taskSheet.getCell(1, 7).value !== 'userNote') {
 
     await workbook.xlsx.writeFile(FILE_PATH);
     console.log('Created tasks.xlsx with Tasks and Users sheets');
+  } else {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(FILE_PATH);
+      const taskSheet = workbook.getWorksheet('Tasks');
+      if (taskSheet && taskSheet.getCell(1, 7).value !== 'userNote') {
+        taskSheet.getCell(1, 7).value = 'userNote';
+        taskSheet.getColumn(7).width = 40;
+        await workbook.xlsx.writeFile(FILE_PATH);
+      }
+    } catch (e) {
+      console.error('Error verifying existing tasks.xlsx header:', e);
+    }
   }
 }
 

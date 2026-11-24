@@ -170,25 +170,6 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-app.patch('/api/tasks/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    const updatedTask = await updateTaskStatus(id, status);
-    if (!updatedTask) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-
-    io.to('admins').emit('status_updated', updatedTask);
-    io.to(updatedTask.assignedTo).emit('status_updated', updatedTask);
-
-    res.json(updatedTask);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to update status in Excel' });
-  }
-});
-
 const PORT = 5000;
 initExcel().then(() => {
   server.listen(PORT, () => {
