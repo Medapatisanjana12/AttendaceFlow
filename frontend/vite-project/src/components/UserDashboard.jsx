@@ -777,27 +777,35 @@ export default function UserDashboard({ userEmail, onLogout }) {
                                 htmlFor={`file-input-${taskId}`}
                                 className={`btn-file-upload ${uploadingTask === taskId ? 'loading' : ''}`}
                               >
-                                {uploadingTask === taskId ? '⏳ Uploading...' : '📁 Upload File/Document'}
+                                <span className="upload-btn-icon">📁</span>
+                                <span className="upload-btn-text">
+                                  {uploadingTask === taskId ? 'Uploading...' : 'Upload Document'}
+                                </span>
                               </label>
                             </div>
 
-                            {/* Or Link Input */}
-                            <input
-                              type="url"
-                              className="proof-url-input"
-                              placeholder="Or paste link (Google Drive, GitHub, Figma...)"
-                              value={
-                                proofs[taskId] !== undefined
-                                  ? proofs[taskId]
-                                  : task.proofAttachment || ''
-                              }
-                              onChange={(e) =>
-                                setProofs((prev) => ({
-                                  ...prev,
-                                  [taskId]: e.target.value
-                                }))
-                              }
-                            />
+                            <span className="proof-divider-or">OR</span>
+
+                            {/* Paste Link Box */}
+                            <div className="proof-url-wrapper">
+                              <span className="url-prefix-icon">🔗</span>
+                              <input
+                                type="url"
+                                className="proof-url-input"
+                                placeholder="Paste link here (Google Drive, GitHub, Figma...)"
+                                value={
+                                  proofs[taskId] !== undefined
+                                    ? proofs[taskId]
+                                    : task.proofAttachment || ''
+                                }
+                                onChange={(e) =>
+                                  setProofs((prev) => ({
+                                    ...prev,
+                                    [taskId]: e.target.value
+                                  }))
+                                }
+                              />
+                            </div>
                           </div>
 
                           {/* Task Feedback Message */}
