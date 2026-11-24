@@ -508,8 +508,9 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
             ) : (
               visibleTasks.map((task) => {
                 const statusText = task.status || 'Pending';
+                const statusKey = statusText.toLowerCase().replace(/\s+/g, '-');
                 return (
-                  <tr key={task.id}>
+                  <tr key={task.id} className={`admin-task-row row-${statusKey}`}>
                     <td><strong>{task.assignedTo}</strong></td>
                     <td>
                       <div style={{ fontWeight: 700 }}>{task.title}</div>
