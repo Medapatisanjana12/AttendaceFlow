@@ -290,23 +290,50 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         </svg>
       </div>
 
-      {/* Bento KPI Stats + Completion Progress */}
-      <div className="stats-row">
-        <div className="stat-card">
-          <span>Total Tasks</span>
-          <strong>{tasks.length}</strong>
+      {/* Bento KPI Overall Status Cards */}
+      <div className="admin-overall-stats-grid">
+        <div className="admin-stat-card card-total">
+          <div className="stat-card-header">
+            <span className="stat-card-icon">📋</span>
+            <span className="stat-card-label">Total Assigned</span>
+          </div>
+          <strong className="stat-card-value">{tasks.length}</strong>
+          <span className="stat-card-hint">All tasks created</span>
         </div>
-        <div className="stat-card">
-          <span>Pending</span>
-          <strong>{pendingCount}</strong>
+
+        <div className="admin-stat-card card-pending">
+          <div className="stat-card-header">
+            <span className="stat-card-icon">⏳</span>
+            <span className="stat-card-label">Pending</span>
+          </div>
+          <strong className="stat-card-value">{pendingCount}</strong>
+          <span className="stat-card-hint">Awaiting start</span>
         </div>
-        <div className="stat-card">
-          <span>In Progress</span>
-          <strong>{inProgressCount}</strong>
+
+        <div className="admin-stat-card card-in-progress">
+          <div className="stat-card-header">
+            <span className="stat-card-icon">⚡</span>
+            <span className="stat-card-label">In Progress</span>
+          </div>
+          <strong className="stat-card-value">{inProgressCount}</strong>
+          <span className="stat-card-hint">Actively working</span>
         </div>
-        <div className="stat-card">
-          <span>Completion Rate</span>
-          <strong>{completionRate}%</strong>
+
+        <div className="admin-stat-card card-completed">
+          <div className="stat-card-header">
+            <span className="stat-card-icon">✅</span>
+            <span className="stat-card-label">Completed</span>
+          </div>
+          <strong className="stat-card-value">{completedCount}</strong>
+          <span className="stat-card-hint">Finished tasks</span>
+        </div>
+
+        <div className="admin-stat-card card-rate">
+          <div className="stat-card-header">
+            <span className="stat-card-icon">🎯</span>
+            <span className="stat-card-label">Completion Rate</span>
+          </div>
+          <strong className="stat-card-value">{completionRate}%</strong>
           <div className="progress-track">
             <div className="progress-fill" style={{ width: `${completionRate}%` }} />
           </div>
@@ -596,138 +623,140 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           />
         </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th>Assigned To</th>
-              <th>Task & Instructions</th>
-              <th>Deadline & Timer</th>
-              <th>User Progress Note</th>
-              <th>Proof of Work</th>
-              <th>Admin Feedback</th>
-              <th>Status</th>
-              <th>Last Updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleTasks.length === 0 ? (
+        <div className="table-wrapper">
+          <table className="admin-master-table">
+            <thead>
               <tr>
-                <td colSpan="8" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
-                  No tasks match your current filter.
-                </td>
+                <th className="th-assigned">Assigned To</th>
+                <th className="th-task">Task & Instructions</th>
+                <th className="th-deadline">Deadline & Timer</th>
+                <th className="th-note">User Progress Note</th>
+                <th className="th-proof">Proof of Work</th>
+                <th className="th-feedback">Admin Feedback</th>
+                <th className="th-status">Status</th>
+                <th className="th-updated">Last Updated</th>
               </tr>
-            ) : (
-              visibleTasks.map((task) => {
-                const statusText = task.status || 'Pending';
-                const statusKey = statusText.toLowerCase().replace(/\s+/g, '-');
-                const timerInfo = getTaskDeadlineInfo(task, currentTime);
+            </thead>
+            <tbody>
+              {visibleTasks.length === 0 ? (
+                <tr>
+                  <td colSpan="8" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
+                    No tasks match your current filter.
+                  </td>
+                </tr>
+              ) : (
+                visibleTasks.map((task) => {
+                  const statusText = task.status || 'Pending';
+                  const statusKey = statusText.toLowerCase().replace(/\s+/g, '-');
+                  const timerInfo = getTaskDeadlineInfo(task, currentTime);
 
-                return (
-                  <tr key={task.id} className={`admin-task-row row-${statusKey} ${timerInfo.rowClass}`}>
-                    <td><strong>{task.assignedTo}</strong></td>
-                    <td>
-                      <div style={{ fontWeight: 700 }}>{task.title}</div>
-                      {task.description && (
-                        <div style={{ fontSize: '13px', color: '#555282', marginTop: '3px' }}>
-                          {task.description}
-                        </div>
-                      )}
-                    </td>
-                    <td className={`deadline-col-cell ${timerInfo.colClass}`}>
-                      <div className={`deadline-timer-badge ${timerInfo.badgeClass}`}>
-                        <div className="timer-main-badge">{timerInfo.primaryText}</div>
-                        {timerInfo.secondaryText && (
-                          <div className="timer-sub-text">{timerInfo.secondaryText}</div>
+                  return (
+                    <tr key={task.id} className={`admin-task-row row-${statusKey} ${timerInfo.rowClass}`}>
+                      <td className="td-assigned"><strong>{task.assignedTo}</strong></td>
+                      <td className="td-task">
+                        <div style={{ fontWeight: 700 }}>{task.title}</div>
+                        {task.description && (
+                          <div style={{ fontSize: '13px', color: '#555282', marginTop: '3px' }}>
+                            {task.description}
+                          </div>
                         )}
-                      </div>
-                    </td>
-                    <td>
-                      {task.userNote ? (
-                        <span className="note-bubble">{task.userNote}</span>
-                      ) : (
-                        <span style={{ color: '#94a3b8' }}>No notes yet</span>
-                      )}
-                    </td>
-                    <td>
-                      {task.proofAttachment ? (
-                        <a
-                          href={task.proofAttachment.startsWith('/') ? `${BACKEND_URL}${task.proofAttachment}` : task.proofAttachment}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="admin-proof-badge"
-                          title={`Open proof: ${task.proofAttachment}`}
-                        >
-                          {task.proofAttachment.startsWith('/uploads/') ? '📄 View Document ↗' : '🔗 Open Link ↗'}
-                        </a>
-                      ) : (
-                        <span style={{ color: '#94a3b8', fontSize: '13px' }}>— No proof —</span>
-                      )}
-                    </td>
-                    <td>
-                      {feedbackEditingTaskId === task.id ? (
-                        <div className="feedback-edit-cell">
-                          <textarea
-                            className="feedback-inline-textarea"
-                            placeholder="Write guidance or review notes for user..."
-                            value={feedbackText}
-                            onChange={(e) => setFeedbackText(e.target.value)}
-                            rows={2}
-                            autoFocus
-                          />
-                          <div className="feedback-edit-actions">
+                      </td>
+                      <td className={`deadline-col-cell ${timerInfo.colClass}`}>
+                        <div className={`deadline-timer-badge ${timerInfo.badgeClass}`}>
+                          <div className="timer-main-badge">{timerInfo.primaryText}</div>
+                          {timerInfo.secondaryText && (
+                            <div className="timer-sub-text">{timerInfo.secondaryText}</div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="td-note">
+                        {task.userNote ? (
+                          <span className="note-bubble">{task.userNote}</span>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>No notes yet</span>
+                        )}
+                      </td>
+                      <td className="td-proof">
+                        {task.proofAttachment ? (
+                          <a
+                            href={task.proofAttachment.startsWith('/') ? `${BACKEND_URL}${task.proofAttachment}` : task.proofAttachment}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="admin-proof-badge"
+                            title={`Open proof: ${task.proofAttachment}`}
+                          >
+                            {task.proofAttachment.startsWith('/uploads/') ? '📄 View Document ↗' : '🔗 Open Link ↗'}
+                          </a>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: '13px' }}>— No proof —</span>
+                        )}
+                      </td>
+                      <td className="td-feedback">
+                        {feedbackEditingTaskId === task.id ? (
+                          <div className="feedback-edit-cell">
+                            <textarea
+                              className="feedback-inline-textarea"
+                              placeholder="Write guidance or review notes for user..."
+                              value={feedbackText}
+                              onChange={(e) => setFeedbackText(e.target.value)}
+                              rows={2}
+                              autoFocus
+                            />
+                            <div className="feedback-edit-actions">
+                              <button
+                                type="button"
+                                className="btn-feedback-save"
+                                disabled={submittingFeedback}
+                                onClick={() => handleSaveFeedback(task.id)}
+                              >
+                                {submittingFeedback ? 'Saving...' : 'Send 💬'}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-feedback-cancel"
+                                onClick={() => setFeedbackEditingTaskId(null)}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        ) : task.adminFeedback ? (
+                          <div className="admin-feedback-display">
+                            <span className="feedback-quote-text" title={task.adminFeedback}>
+                              "{task.adminFeedback}"
+                            </span>
                             <button
                               type="button"
-                              className="btn-feedback-save"
-                              disabled={submittingFeedback}
-                              onClick={() => handleSaveFeedback(task.id)}
+                              className="btn-feedback-edit"
+                              title="Edit feedback"
+                              onClick={() => handleOpenFeedback(task)}
                             >
-                              {submittingFeedback ? 'Saving...' : 'Send 💬'}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-feedback-cancel"
-                              onClick={() => setFeedbackEditingTaskId(null)}
-                            >
-                              ✕
+                              ✏️ Edit
                             </button>
                           </div>
-                        </div>
-                      ) : task.adminFeedback ? (
-                        <div className="admin-feedback-display">
-                          <span className="feedback-quote-text" title={task.adminFeedback}>
-                            "{task.adminFeedback}"
-                          </span>
+                        ) : (
                           <button
                             type="button"
-                            className="btn-feedback-edit"
-                            title="Edit feedback"
+                            className="btn-give-feedback"
                             onClick={() => handleOpenFeedback(task)}
                           >
-                            ✏️ Edit
+                            + Give Feedback 💬
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn-give-feedback"
-                          onClick={() => handleOpenFeedback(task)}
-                        >
-                          + Give Feedback 💬
-                        </button>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`badge ${statusText.toLowerCase().replace(' ', '-')}`}>
-                        {statusText}
-                      </span>
-                    </td>
-                    <td>{task.updatedAt || '—'}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                        )}
+                      </td>
+                      <td className="td-status status-cell">
+                        <span className={`badge ${statusText.toLowerCase().replace(' ', '-')}`}>
+                          {statusText}
+                        </span>
+                      </td>
+                      <td className="td-updated">{task.updatedAt || '—'}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Admin Credentials Modal */}
