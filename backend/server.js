@@ -69,9 +69,14 @@ io.on('connection', (socket) => {
 app.patch('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, userNote, proofAttachment } = req.body;
+    const { status, userNote, proofAttachment, adminFeedback } = req.body;
 
-    if (status === undefined && userNote === undefined && proofAttachment === undefined) {
+    if (
+      status === undefined &&
+      userNote === undefined &&
+      proofAttachment === undefined &&
+      adminFeedback === undefined
+    ) {
       return res.status(400).json({
         error: 'No update information provided',
       });
@@ -89,6 +94,10 @@ app.patch('/api/tasks/:id', async (req, res) => {
 
     if (proofAttachment !== undefined) {
       updates.proofAttachment = proofAttachment;
+    }
+
+    if (adminFeedback !== undefined) {
+      updates.adminFeedback = adminFeedback;
     }
 
     const updatedTask = await updateTask(id, updates);

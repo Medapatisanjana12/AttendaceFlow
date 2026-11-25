@@ -566,6 +566,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                         <th>Task Details</th>
                         <th>Progress Note</th>
                         <th>Proof of Work</th>
+                        <th>Admin Feedback</th>
                         <th>Status</th>
                         <th>Last Updated</th>
                         <th>Action</th>
@@ -615,6 +616,19 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                               </a>
                             ) : (
                               <span className="muted">— No proof —</span>
+                            )}
+                          </td>
+
+                          <td>
+                            {task.adminFeedback ? (
+                              <div className="user-admin-feedback-pill">
+                                <span className="feedback-pill-icon">💬</span>
+                                <span className="feedback-pill-text" title={task.adminFeedback}>
+                                  "{task.adminFeedback}"
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="muted">— No feedback yet —</span>
                             )}
                           </td>
 
@@ -691,6 +705,24 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                       </p>
 
                       <div className="task-divider" />
+
+                      {/* ADMIN FEEDBACK BANNER */}
+                      {task.adminFeedback ? (
+                        <div className="task-admin-feedback-card active">
+                          <div className="feedback-card-top">
+                            <span className="feedback-card-icon">💬</span>
+                            <strong>Admin Feedback:</strong>
+                          </div>
+                          <p className="feedback-card-text">"{task.adminFeedback}"</p>
+                        </div>
+                      ) : (
+                        <div className="task-admin-feedback-card awaiting">
+                          <span className="feedback-card-icon">💬</span>
+                          <span className="feedback-card-awaiting-text">
+                            No feedback from admin yet. Submit notes and proof below.
+                          </span>
+                        </div>
+                      )}
 
                       {/* WORK UPDATE & PROOF OF WORK SECTION */}
                       <div className="note-section work-update-section">

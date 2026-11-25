@@ -50,6 +50,7 @@ async function initExcel() {
       { header: 'userNote', key: 'userNote', width: 40 },
       { header: 'proofAttachment', key: 'proofAttachment', width: 45 },
       { header: 'assignedToEmail', key: 'assignedToEmail', width: 30 },
+      { header: 'adminFeedback', key: 'adminFeedback', width: 45 },
     ];
 
     // Sheet 2: Users
@@ -92,6 +93,11 @@ async function initExcel() {
         if (taskSheet.getCell(1, 9).value !== 'assignedToEmail') {
           taskSheet.getCell(1, 9).value = 'assignedToEmail';
           taskSheet.getColumn(9).width = 30;
+          needsSave = true;
+        }
+        if (taskSheet.getCell(1, 10).value !== 'adminFeedback') {
+          taskSheet.getCell(1, 10).value = 'adminFeedback';
+          taskSheet.getColumn(10).width = 45;
           needsSave = true;
         }
       }
@@ -325,6 +331,7 @@ async function getAllTasks() {
       userNote: getCellValueString(row.getCell(7)),
       proofAttachment: getCellValueString(row.getCell(8)),
       assignedToEmail: assignedEmail,
+      adminFeedback: getCellValueString(row.getCell(10)),
     });
   });
 
@@ -353,6 +360,7 @@ function addTask(taskData) {
       userNote: '',
       proofAttachment: taskData.proofAttachment || '',
       assignedToEmail: assignedEmail,
+      adminFeedback: taskData.adminFeedback || '',
     };
 
     sheet.addRow([
@@ -365,6 +373,7 @@ function addTask(taskData) {
       newTask.userNote,
       newTask.proofAttachment,
       newTask.assignedToEmail,
+      newTask.adminFeedback,
     ]);
 
     await syncUserProgressSheet(workbook);
@@ -373,7 +382,7 @@ function addTask(taskData) {
   });
 }
 
-function updateTask(taskId, { status, userNote, proofAttachment }) {
+function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback }) {
   return enqueueWrite(async () => {
     await initExcel();
     const workbook = new ExcelJS.Workbook();
@@ -387,17 +396,23 @@ function updateTask(taskId, { status, userNote, proofAttachment }) {
         if (status !== undefined) row.getCell(5).value = status;
         if (userNote !== undefined) row.getCell(7).value = userNote;
         if (proofAttachment !== undefined) row.getCell(8).value = proofAttachment;
+        if (adminFeedback !== undefined) row.getCell(10).value = adminFeedback;
         row.getCell(6).value = new Date().toLocaleString();
+
+        const rawAssigned = getCellValueString(row.getCell(2));
+        const assignedEmail = getCellValueString(row.getCell(9));
 
         updatedTask = {
           id: row.getCell(1).value?.toString(),
-          assignedTo: row.getCell(2).value?.toString(),
+          assignedTo: rawAssigned,
           title: row.getCell(3).value?.toString(),
           description: row.getCell(4).value?.toString() || '',
           status: row.getCell(5).value?.toString(),
           updatedAt: row.getCell(6).value?.toString(),
-          userNote: row.getCell(7).value?.toString() || '',
-          proofAttachment: row.getCell(8).value?.toString() || '',
+          userNote: getCellValueString(row.getCell(7)),
+          proofAttachment: getCellValueString(row.getCell(8)),
+          assignedToEmail: assignedEmail,
+          adminFeedback: getCellValueString(row.getCell(10)),
         };
       }
     });
@@ -597,6 +612,8 @@ async function getUserProgressModules() {
     const tasksWithNotes = userTasks.filter((t) => t.userNote && t.userNote.trim());
     const latestNoteTask = tasksWithNotes.length > 0 ? tasksWithNotes[tasksWithNotes.length - 1] : null;
     const proofsCount = userTasks.filter((t) => t.proofAttachment && t.proofAttachment.trim()).length;
+    const tasksWithFeedback = userTasks.filter((t) => t.adminFeedback && t.adminFeedback.trim());
+    const latestFeedbackTask = tasksWithFeedback.length > 0 ? tasksWithFeedback[tasksWithFeedback.length - 1] : null;
 
     return {
       userId: user.id,
@@ -609,6 +626,9 @@ async function getUserProgressModules() {
       incompleteCount: incompleteTasks.length,
       progressPercent,
       proofsCount,
+      feedbacksCount: tasksWithFeedback.length,
+      latestFeedback: latestFeedbackTask ? latestFeedbackTask.adminFeedback : '',
+      latestFeedbackTaskTitle: latestFeedbackTask ? latestFeedbackTask.title : '',
       latestNote: latestNoteTask ? latestNoteTask.userNote : '',
       latestNoteTaskTitle: latestNoteTask ? latestNoteTask.title : '',
       latestNoteDate: latestNoteTask ? latestNoteTask.updatedAt : '',

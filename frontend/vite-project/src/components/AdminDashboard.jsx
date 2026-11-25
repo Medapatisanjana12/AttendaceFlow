@@ -26,6 +26,37 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [settingsMsg, setSettingsMsg] = useState({ type: '', text: '' });
   const [isUpdatingCredentials, setIsUpdatingCredentials] = useState(false);
 
+  // Feedback State
+  const [feedbackEditingTaskId, setFeedbackEditingTaskId] = useState(null);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+
+  const handleOpenFeedback = (task) => {
+    setFeedbackEditingTaskId(task.id);
+    setFeedbackText(task.adminFeedback || '');
+  };
+
+  const handleSaveFeedback = async (taskId) => {
+    try {
+      setSubmittingFeedback(true);
+      await axios.patch(`${API_BASE_URL}/tasks/${taskId}`, {
+        adminFeedback: feedbackText,
+      });
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, adminFeedback: feedbackText } : t))
+      );
+      setFeedbackEditingTaskId(null);
+      setFeedbackText('');
+      fetchUserModules();
+    } catch (err) {
+      console.error('Failed to save feedback:', err);
+      alert('Failed to save feedback.');
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
+
   useEffect(() => {
     if (adminUser) {
       setAdminName(adminUser.name || 'System Admin');
@@ -393,6 +424,18 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                       </div>
                     )}
 
+                    {m.feedbacksCount > 0 && (
+                      <div className="module-feedback-tag">
+                        <span className="feedback-icon">💬</span>
+                        <span>{m.feedbacksCount} Feedback{m.feedbacksCount > 1 ? 's' : ''} Given</span>
+                        {m.latestFeedback && (
+                          <span className="module-latest-feedback-preview" title={m.latestFeedback}>
+                            "{m.latestFeedback.slice(0, 26)}{m.latestFeedback.length > 26 ? '...' : ''}"
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="module-actions">
                       <button
                         type="button"
@@ -504,6 +547,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               <th>Task & Instructions</th>
               <th>User Progress Note</th>
               <th>Proof of Work</th>
+              <th>Admin Feedback</th>
               <th>Status</th>
               <th>Last Updated</th>
             </tr>
@@ -511,7 +555,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           <tbody>
             {visibleTasks.length === 0 ? (
               <tr>
-                <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
+                <td colSpan="7" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
                   No tasks match your current filter.
                 </td>
               </tr>
@@ -550,6 +594,59 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                         </a>
                       ) : (
                         <span style={{ color: '#94a3b8', fontSize: '13px' }}>— No proof —</span>
+                      )}
+                    </td>
+                    <td>
+                      {feedbackEditingTaskId === task.id ? (
+                        <div className="feedback-edit-cell">
+                          <textarea
+                            className="feedback-inline-textarea"
+                            placeholder="Write guidance or review notes for user..."
+                            value={feedbackText}
+                            onChange={(e) => setFeedbackText(e.target.value)}
+                            rows={2}
+                            autoFocus
+                          />
+                          <div className="feedback-edit-actions">
+                            <button
+                              type="button"
+                              className="btn-feedback-save"
+                              disabled={submittingFeedback}
+                              onClick={() => handleSaveFeedback(task.id)}
+                            >
+                              {submittingFeedback ? 'Saving...' : 'Send 💬'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-feedback-cancel"
+                              onClick={() => setFeedbackEditingTaskId(null)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ) : task.adminFeedback ? (
+                        <div className="admin-feedback-display">
+                          <span className="feedback-quote-text" title={task.adminFeedback}>
+                            "{task.adminFeedback}"
+                          </span>
+                          <button
+                            type="button"
+                            className="btn-feedback-edit"
+                            title="Edit feedback"
+                            onClick={() => handleOpenFeedback(task)}
+                          >
+                            ✏️ Edit
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-give-feedback"
+                          onClick={() => handleOpenFeedback(task)}
+                        >
+                          + Give Feedback 💬
+                        </button>
                       )}
                     </td>
                     <td>
