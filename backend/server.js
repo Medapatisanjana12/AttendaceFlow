@@ -69,13 +69,14 @@ io.on('connection', (socket) => {
 app.patch('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, userNote, proofAttachment, adminFeedback } = req.body;
+    const { status, userNote, proofAttachment, adminFeedback, deadline } = req.body;
 
     if (
       status === undefined &&
       userNote === undefined &&
       proofAttachment === undefined &&
-      adminFeedback === undefined
+      adminFeedback === undefined &&
+      deadline === undefined
     ) {
       return res.status(400).json({
         error: 'No update information provided',
@@ -98,6 +99,10 @@ app.patch('/api/tasks/:id', async (req, res) => {
 
     if (adminFeedback !== undefined) {
       updates.adminFeedback = adminFeedback;
+    }
+
+    if (deadline !== undefined) {
+      updates.deadline = deadline;
     }
 
     const updatedTask = await updateTask(id, updates);
@@ -271,12 +276,12 @@ app.get('/api/tasks', async (req, res) => {
 
 app.post('/api/tasks', async (req, res) => {
   try {
-    const { assignedTo, title, description } = req.body;
+    const { assignedTo, title, description, deadline } = req.body;
     if (!assignedTo || !title) {
       return res.status(400).json({ error: 'Assigned user and title are required' });
     }
 
-    const newTask = await addTask({ assignedTo, title, description });
+    const newTask = await addTask({ assignedTo, title, description, deadline });
 
     // Look up user to broadcast to their rooms
     const user = await findUserByNameOrEmail(assignedTo);

@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import socket from '../socket';
 import { API_BASE_URL, BACKEND_URL } from '../config';
+import { getTaskDeadlineInfo } from '../utils/timerUtils';
 
 export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [tasks, setTasks] = useState([]);
   const [assignedTo, setAssignedTo] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [currentTime, setCurrentTime] = useState(Date.now());
   const [filterStatus, setFilterStatus] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -116,6 +119,21 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
     };
   }, []);
 
+  // Live timer tick every second for real-time countdowns
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timerInterval);
+  }, []);
+
+  const setQuickDeadline = (minutes) => {
+    const target = new Date(Date.now() + minutes * 60 * 1000);
+    const offset = target.getTimezoneOffset() * 60000;
+    const localIso = new Date(target.getTime() - offset).toISOString().slice(0, 16);
+    setDeadline(localIso);
+  };
+
   const handleAssignTask = async (e) => {
     e.preventDefault();
     if (!assignedTo || !title) return;
@@ -125,10 +143,12 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         assignedTo,
         title,
         description,
+        deadline: deadline ? new Date(deadline).toISOString() : '',
       });
       setAssignedTo('');
       setTitle('');
       setDescription('');
+      setDeadline('');
     } catch (err) {
       alert('Failed to assign task. Make sure tasks.xlsx is closed.');
     }
@@ -470,7 +490,10 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
       {/* Assign Task Bento Card */}
       <form onSubmit={handleAssignTask} className="card form-grid" id="assign-task-form">
-        <h3>+ Assign New Task</h3>
+        <div className="form-title-row">
+          <h3>+ Assign New Task</h3>
+          <span className="assign-timer-hint">⏱️ Timer starts on assignment</span>
+        </div>
         <input
           type="text"
           list="team-names"
@@ -499,6 +522,39 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
+
+        {/* Task Deadline & Live Timer Limit Input */}
+        <div className="deadline-form-group">
+          <div className="deadline-input-header">
+            <label className="deadline-input-label">
+              ⏱️ Deadline & Timer Limit:
+            </label>
+            <div className="deadline-preset-buttons">
+              <span className="deadline-presets-label">Quick Set:</span>
+              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(30)}>+30m</button>
+              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(60)}>+1h</button>
+              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(240)}>+4h</button>
+              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(1440)}>+1d</button>
+              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(2880)}>+2d</button>
+              {deadline && (
+                <button type="button" className="btn-preset-clear" onClick={() => setDeadline('')}>Clear ✕</button>
+              )}
+            </div>
+          </div>
+          <input
+            type="datetime-local"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            className="deadline-datetime-input"
+            title="Set task completion deadline"
+          />
+          {deadline && (
+            <small className="deadline-target-note">
+              ✓ Time limit set to: <strong>{new Date(deadline).toLocaleString()}</strong>. Timer will activate on assignment.
+            </small>
+          )}
+        </div>
+
         <button type="submit" className="btn-primary">Assign Task</button>
       </form>
 
@@ -545,6 +601,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
             <tr>
               <th>Assigned To</th>
               <th>Task & Instructions</th>
+              <th>Deadline & Timer</th>
               <th>User Progress Note</th>
               <th>Proof of Work</th>
               <th>Admin Feedback</th>
@@ -555,7 +612,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           <tbody>
             {visibleTasks.length === 0 ? (
               <tr>
-                <td colSpan="7" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
+                <td colSpan="8" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
                   No tasks match your current filter.
                 </td>
               </tr>
@@ -563,8 +620,10 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               visibleTasks.map((task) => {
                 const statusText = task.status || 'Pending';
                 const statusKey = statusText.toLowerCase().replace(/\s+/g, '-');
+                const timerInfo = getTaskDeadlineInfo(task, currentTime);
+
                 return (
-                  <tr key={task.id} className={`admin-task-row row-${statusKey}`}>
+                  <tr key={task.id} className={`admin-task-row row-${statusKey} ${timerInfo.rowClass}`}>
                     <td><strong>{task.assignedTo}</strong></td>
                     <td>
                       <div style={{ fontWeight: 700 }}>{task.title}</div>
@@ -573,6 +632,14 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                           {task.description}
                         </div>
                       )}
+                    </td>
+                    <td className={`deadline-col-cell ${timerInfo.colClass}`}>
+                      <div className={`deadline-timer-badge ${timerInfo.badgeClass}`}>
+                        <div className="timer-main-badge">{timerInfo.primaryText}</div>
+                        {timerInfo.secondaryText && (
+                          <div className="timer-sub-text">{timerInfo.secondaryText}</div>
+                        )}
+                      </div>
                     </td>
                     <td>
                       {task.userNote ? (

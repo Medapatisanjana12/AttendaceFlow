@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import socket from '../socket';
 import { API_BASE_URL, BACKEND_URL } from '../config';
+import { getTaskDeadlineInfo } from '../utils/timerUtils';
 
 const API_URL = API_BASE_URL;
 
@@ -150,6 +151,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
   const [proofs, setProofs] = useState({});
   const [uploadingTask, setUploadingTask] = useState(null);
   const [taskFeedback, setTaskFeedback] = useState({});
+  const [currentTime, setCurrentTime] = useState(Date.now());
   const [currentView, setCurrentView] = useState('overview');
   const [filterStatus, setFilterStatus] = useState('All');
   const [loading, setLoading] = useState(true);
@@ -157,6 +159,14 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
   const [savingTask, setSavingTask] = useState(null);
 
   const userName = currentUser?.name || (userEmail ? userEmail.split('@')[0] : 'User');
+
+  // Live timer tick every second for real-time countdowns
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timerInterval);
+  }, []);
 
   // Fetch tasks and listen for live updates
   useEffect(() => {
@@ -564,6 +574,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                     <thead>
                       <tr>
                         <th>Task Details</th>
+                        <th>Deadline & Timer</th>
                         <th>Progress Note</th>
                         <th>Proof of Work</th>
                         <th>Admin Feedback</th>
@@ -574,16 +585,27 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                     </thead>
 
                     <tbody>
-                      {filteredTasks.map((task) => (
-                        <tr key={getTaskId(task)}>
-                          <td>
-                            <strong className="task-title">
-                              {task.title}
-                            </strong>
-                            <p className="task-description">
-                              {task.description || 'No additional instructions.'}
-                            </p>
-                          </td>
+                      {filteredTasks.map((task) => {
+                        const timerInfo = getTaskDeadlineInfo(task, currentTime);
+                        return (
+                          <tr key={getTaskId(task)}>
+                            <td>
+                              <strong className="task-title">
+                                {task.title}
+                              </strong>
+                              <p className="task-description">
+                                {task.description || 'No additional instructions.'}
+                              </p>
+                            </td>
+
+                            <td className={`deadline-col-cell ${timerInfo.colClass}`}>
+                              <div className={`deadline-timer-badge ${timerInfo.badgeClass}`}>
+                                <span className="timer-main-badge">{timerInfo.primaryText}</span>
+                                {timerInfo.secondaryText && (
+                                  <span className="timer-sub-text">{timerInfo.secondaryText}</span>
+                                )}
+                              </div>
+                            </td>
 
                           <td>
                             {task.userNote ? (
@@ -647,7 +669,8 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                             </button>
                           </td>
                         </tr>
-                      ))}
+                      );
+                    })}
                     </tbody>
                   </table>
                 </div>
@@ -683,6 +706,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                 {tasks.map((task, index) => {
                   const taskId = getTaskId(task);
                   const status = task.status || 'Pending';
+                  const timerInfo = getTaskDeadlineInfo(task, currentTime);
 
                   return (
                     <article
@@ -703,6 +727,24 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                         {task.description ||
                           'No additional instructions provided.'}
                       </p>
+
+                      {/* DEADLINE & LIVE COUNTDOWN TIMER BANNER */}
+                      <div className={`user-task-timer-banner ${timerInfo.badgeClass}`}>
+                        <div className="timer-banner-header">
+                          <span className="timer-clock-icon">⏱️</span>
+                          <span className="timer-banner-title">
+                            {timerInfo.isCompleted
+                              ? (timerInfo.isOnTime ? '✓ Completed On Time' : '✕ Completed Late')
+                              : (timerInfo.isOverdue ? '⚠️ Deadline Passed (Overdue)' : '⏱️ Task Deadline & Live Timer')}
+                          </span>
+                        </div>
+                        <div className="timer-banner-body">
+                          <span className="timer-banner-time">{timerInfo.primaryText}</span>
+                          {timerInfo.secondaryText && (
+                            <span className="timer-banner-sub">{timerInfo.secondaryText}</span>
+                          )}
+                        </div>
+                      </div>
 
                       <div className="task-divider" />
 

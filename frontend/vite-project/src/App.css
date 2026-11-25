@@ -461,65 +461,358 @@ tbody tr:hover {
   background-color: var(--orange-soft);
 }
 
-/* --- ADMIN OVERALL TASKS STATUS ROW COLORING --- */
-/* Completed -> Green */
-tbody tr.admin-task-row.row-completed {
+/* --- ADMIN OVERALL TASKS STATUS & DEADLINE ROW COLORING --- */
+/* Completed On Time -> Green */
+tbody tr.admin-task-row.row-completed,
+tbody tr.admin-task-row.row-completed-ontime {
   background-color: #EBF8EE !important;
   border-bottom: 1px solid #C4EDCF !important;
 }
 
-tbody tr.admin-task-row.row-completed:hover {
+tbody tr.admin-task-row.row-completed:hover,
+tbody tr.admin-task-row.row-completed-ontime:hover {
   background-color: #DCF4E2 !important;
 }
 
-tbody tr.admin-task-row.row-completed td:first-child {
+tbody tr.admin-task-row.row-completed td:first-child,
+tbody tr.admin-task-row.row-completed-ontime td:first-child {
   border-left: 5px solid #16A34A !important;
 }
 
-tbody tr.admin-task-row.row-completed .badge {
+tbody tr.admin-task-row.row-completed .badge,
+tbody tr.admin-task-row.row-completed-ontime .badge {
   background-color: #D1FAE5 !important;
   color: #065F46 !important;
   border: 1px solid #A7F3D0 !important;
 }
 
-/* In Progress -> Orange */
-tbody tr.admin-task-row.row-in-progress {
+/* In Progress / Active within deadline -> Orange */
+tbody tr.admin-task-row.row-in-progress,
+tbody tr.admin-task-row.row-active-pending {
   background-color: #FFF2E8 !important;
   border-bottom: 1px solid #FED7AA !important;
 }
 
-tbody tr.admin-task-row.row-in-progress:hover {
+tbody tr.admin-task-row.row-in-progress:hover,
+tbody tr.admin-task-row.row-active-pending:hover {
   background-color: #FFE6D3 !important;
 }
 
-tbody tr.admin-task-row.row-in-progress td:first-child {
+tbody tr.admin-task-row.row-in-progress td:first-child,
+tbody tr.admin-task-row.row-active-pending td:first-child {
   border-left: 5px solid #F16F28 !important;
 }
 
-tbody tr.admin-task-row.row-in-progress .badge {
+tbody tr.admin-task-row.row-in-progress .badge,
+tbody tr.admin-task-row.row-active-pending .badge {
   background-color: #FFEDD5 !important;
   color: #C2410C !important;
   border: 1px solid #FDBA74 !important;
 }
 
-/* Pending -> Red */
-tbody tr.admin-task-row.row-pending {
+/* Overdue / Missed / Completed Late / Pending -> Red */
+tbody tr.admin-task-row.row-pending,
+tbody tr.admin-task-row.row-overdue,
+tbody tr.admin-task-row.row-completed-late {
   background-color: #FDF0F0 !important;
   border-bottom: 1px solid #FECACA !important;
 }
 
-tbody tr.admin-task-row.row-pending:hover {
+tbody tr.admin-task-row.row-pending:hover,
+tbody tr.admin-task-row.row-overdue:hover,
+tbody tr.admin-task-row.row-completed-late:hover {
   background-color: #FCE2E2 !important;
 }
 
-tbody tr.admin-task-row.row-pending td:first-child {
+tbody tr.admin-task-row.row-pending td:first-child,
+tbody tr.admin-task-row.row-overdue td:first-child,
+tbody tr.admin-task-row.row-completed-late td:first-child {
   border-left: 5px solid #EF4444 !important;
 }
 
-tbody tr.admin-task-row.row-pending .badge {
+tbody tr.admin-task-row.row-pending .badge,
+tbody tr.admin-task-row.row-overdue .badge,
+tbody tr.admin-task-row.row-completed-late .badge {
   background-color: #FEE2E2 !important;
   color: #DC2626 !important;
   border: 1px solid #FCA5A5 !important;
+}
+
+/* --- DEADLINE & TIMER COLUMN CELLS & BADGES --- */
+td.deadline-col-cell {
+  min-width: 175px;
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+/* Green Highlight for Deadline Column when on time */
+td.deadline-col-cell.col-deadline-ontime {
+  background-color: rgba(22, 163, 74, 0.12) !important;
+  border-left: 2px solid #16A34A !important;
+  border-right: 2px solid #16A34A !important;
+}
+
+/* Red Highlight for Deadline Column when overdue or completed late */
+td.deadline-col-cell.col-deadline-overdue {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  border-left: 2px solid #EF4444 !important;
+  border-right: 2px solid #EF4444 !important;
+}
+
+/* Orange/Yellow Highlight for Deadline Column when active timer ticking */
+td.deadline-col-cell.col-deadline-active {
+  background-color: rgba(241, 111, 40, 0.08) !important;
+  border-left: 2px solid #F16F28 !important;
+  border-right: 2px solid #F16F28 !important;
+}
+
+.deadline-timer-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.deadline-timer-badge.timer-badge-green {
+  background-color: #DCFCE7;
+  color: #15803D;
+  border: 1px solid #86EFAC;
+}
+
+.deadline-timer-badge.timer-badge-red {
+  background-color: #FEE2E2;
+  color: #B91C1C;
+  border: 1px solid #FCA5A5;
+}
+
+.deadline-timer-badge.timer-badge-orange {
+  background-color: #FEF3C7;
+  color: #B45309;
+  border: 1px solid #FCD34D;
+}
+
+.deadline-timer-badge.timer-badge-neutral {
+  background-color: #F1F5F9;
+  color: #64748B;
+  border: 1px solid #CBD5E1;
+}
+
+.timer-main-badge {
+  font-size: 13px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  letter-spacing: 0.2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.timer-sub-text {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+@keyframes pulseRedGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+  }
+}
+
+.pulse-red {
+  animation: pulseRedGlow 1.8s infinite;
+}
+
+/* --- ADMIN ASSIGN TASK DEADLINE INPUT FORM STYLES --- */
+.form-title-row {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.form-title-row h3 {
+  margin: 0;
+}
+
+.assign-timer-hint {
+  font-size: 12px;
+  font-weight: 700;
+  color: #F16F28;
+  background-color: #FFF2E8;
+  border: 1px solid #FED7AA;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.deadline-form-group {
+  grid-column: 1 / -1;
+  background-color: #F8F9FE;
+  border: 1.5px dashed #CBD5E1;
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.deadline-input-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.deadline-input-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #242158;
+}
+
+.deadline-preset-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.deadline-presets-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748B;
+}
+
+.btn-preset-chip {
+  background-color: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  color: #242158;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-preset-chip:hover {
+  background-color: #F16F28;
+  border-color: #F16F28;
+  color: #FFFFFF;
+  transform: translateY(-1px);
+}
+
+.btn-preset-clear {
+  background-color: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  color: #DC2626;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-preset-clear:hover {
+  background-color: #EF4444;
+  color: #FFFFFF;
+}
+
+.deadline-datetime-input {
+  width: 100%;
+  max-width: 320px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #CBD5E1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #242158;
+  background-color: #FFFFFF;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.deadline-datetime-input:focus {
+  border-color: #F16F28;
+  box-shadow: 0 0 0 3px rgba(241, 111, 40, 0.15);
+}
+
+.deadline-target-note {
+  font-size: 12px;
+  color: #15803D;
+  font-weight: 600;
+}
+
+/* --- USER TASK CARD DEADLINE & LIVE TIMER BANNER --- */
+.user-task-timer-banner {
+  margin: 10px 0 14px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: all 0.2s ease;
+}
+
+.user-task-timer-banner.timer-badge-green {
+  background-color: #EBF8EE;
+  border: 1.5px solid #86EFAC;
+  color: #15803D;
+}
+
+.user-task-timer-banner.timer-badge-red {
+  background-color: #FDF0F0;
+  border: 1.5px solid #FCA5A5;
+  color: #B91C1C;
+}
+
+.user-task-timer-banner.timer-badge-orange {
+  background-color: #FFF8EE;
+  border: 1.5px solid #FCD34D;
+  color: #B45309;
+}
+
+.user-task-timer-banner.timer-badge-neutral {
+  background-color: #F8F9FE;
+  border: 1.5px solid #E2E8F0;
+  color: #64748B;
+}
+
+.timer-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.timer-banner-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timer-banner-time {
+  font-size: 16px;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+.timer-banner-sub {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.9;
 }
 
 /* Ensure note bubbles and descriptions remain crisp on colored rows */

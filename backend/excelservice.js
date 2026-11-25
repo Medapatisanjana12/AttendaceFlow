@@ -51,6 +51,9 @@ async function initExcel() {
       { header: 'proofAttachment', key: 'proofAttachment', width: 45 },
       { header: 'assignedToEmail', key: 'assignedToEmail', width: 30 },
       { header: 'adminFeedback', key: 'adminFeedback', width: 45 },
+      { header: 'deadline', key: 'deadline', width: 30 },
+      { header: 'completedAt', key: 'completedAt', width: 30 },
+      { header: 'createdAt', key: 'createdAt', width: 30 },
     ];
 
     // Sheet 2: Users
@@ -98,6 +101,21 @@ async function initExcel() {
         if (taskSheet.getCell(1, 10).value !== 'adminFeedback') {
           taskSheet.getCell(1, 10).value = 'adminFeedback';
           taskSheet.getColumn(10).width = 45;
+          needsSave = true;
+        }
+        if (taskSheet.getCell(1, 11).value !== 'deadline') {
+          taskSheet.getCell(1, 11).value = 'deadline';
+          taskSheet.getColumn(11).width = 30;
+          needsSave = true;
+        }
+        if (taskSheet.getCell(1, 12).value !== 'completedAt') {
+          taskSheet.getCell(1, 12).value = 'completedAt';
+          taskSheet.getColumn(12).width = 30;
+          needsSave = true;
+        }
+        if (taskSheet.getCell(1, 13).value !== 'createdAt') {
+          taskSheet.getCell(1, 13).value = 'createdAt';
+          taskSheet.getColumn(13).width = 30;
           needsSave = true;
         }
       }
@@ -332,6 +350,9 @@ async function getAllTasks() {
       proofAttachment: getCellValueString(row.getCell(8)),
       assignedToEmail: assignedEmail,
       adminFeedback: getCellValueString(row.getCell(10)),
+      deadline: getCellValueString(row.getCell(11)),
+      completedAt: getCellValueString(row.getCell(12)),
+      createdAt: getCellValueString(row.getCell(13)),
     });
   });
 
@@ -350,6 +371,7 @@ function addTask(taskData) {
     const assignedName = user ? user.name : taskData.assignedTo.trim();
     const assignedEmail = user ? user.email : (taskData.assignedTo.includes('@') ? taskData.assignedTo.trim().toLowerCase() : '');
 
+    const nowIso = new Date().toISOString();
     const newTask = {
       id: Date.now().toString(),
       assignedTo: assignedName,
@@ -361,6 +383,9 @@ function addTask(taskData) {
       proofAttachment: taskData.proofAttachment || '',
       assignedToEmail: assignedEmail,
       adminFeedback: taskData.adminFeedback || '',
+      deadline: taskData.deadline || '',
+      completedAt: '',
+      createdAt: nowIso,
     };
 
     sheet.addRow([
@@ -374,6 +399,9 @@ function addTask(taskData) {
       newTask.proofAttachment,
       newTask.assignedToEmail,
       newTask.adminFeedback,
+      newTask.deadline,
+      newTask.completedAt,
+      newTask.createdAt,
     ]);
 
     await syncUserProgressSheet(workbook);
@@ -382,7 +410,7 @@ function addTask(taskData) {
   });
 }
 
-function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback }) {
+function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, deadline }) {
   return enqueueWrite(async () => {
     await initExcel();
     const workbook = new ExcelJS.Workbook();
@@ -393,14 +421,34 @@ function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback }
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
       if (row.getCell(1).value?.toString() === taskId.toString()) {
-        if (status !== undefined) row.getCell(5).value = status;
+        let completedAtVal = getCellValueString(row.getCell(12));
+
+        if (status !== undefined) {
+          row.getCell(5).value = status;
+          if (status === 'Completed') {
+            if (!completedAtVal) {
+              completedAtVal = new Date().toISOString();
+              row.getCell(12).value = completedAtVal;
+            }
+          } else {
+            // Reopened or switched away from Completed
+            completedAtVal = '';
+            row.getCell(12).value = '';
+          }
+        }
         if (userNote !== undefined) row.getCell(7).value = userNote;
         if (proofAttachment !== undefined) row.getCell(8).value = proofAttachment;
         if (adminFeedback !== undefined) row.getCell(10).value = adminFeedback;
+        if (deadline !== undefined) row.getCell(11).value = deadline;
         row.getCell(6).value = new Date().toLocaleString();
 
         const rawAssigned = getCellValueString(row.getCell(2));
         const assignedEmail = getCellValueString(row.getCell(9));
+        let createdAtVal = getCellValueString(row.getCell(13));
+        if (!createdAtVal) {
+          createdAtVal = new Date().toISOString();
+          row.getCell(13).value = createdAtVal;
+        }
 
         updatedTask = {
           id: row.getCell(1).value?.toString(),
@@ -413,6 +461,9 @@ function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback }
           proofAttachment: getCellValueString(row.getCell(8)),
           assignedToEmail: assignedEmail,
           adminFeedback: getCellValueString(row.getCell(10)),
+          deadline: getCellValueString(row.getCell(11)),
+          completedAt: getCellValueString(row.getCell(12)),
+          createdAt: createdAtVal,
         };
       }
     });
