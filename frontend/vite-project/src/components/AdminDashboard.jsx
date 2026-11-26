@@ -5,6 +5,10 @@ import { API_BASE_URL, BACKEND_URL } from '../config';
 import { getTaskDeadlineInfo } from '../utils/timerUtils';
 
 export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
+  // Navigation State
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'attendance' | 'directory' | 'allocation' | 'submissions'
+
+  // Task & Dashboard State
   const [tasks, setTasks] = useState([]);
   const [assignedTo, setAssignedTo] = useState('');
   const [title, setTitle] = useState('');
@@ -14,10 +18,31 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [filterStatus, setFilterStatus] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Individual User Modules State
+  // User Modules & Employee Directory State
   const [userModules, setUserModules] = useState([]);
   const [selectedUserFilter, setSelectedUserFilter] = useState('All');
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [selectedDept, setSelectedDept] = useState('All'); // 'All' | 'IT' | 'HRD' | 'Marketing'
+  const [allocationDept, setAllocationDept] = useState('All');
+
+  // Add Employee Modal State
+  const [showAddEmpModal, setShowAddEmpModal] = useState(false);
+  const [newEmpName, setNewEmpName] = useState('');
+  const [newEmpUsername, setNewEmpUsername] = useState('');
+  const [newEmpEmail, setNewEmpEmail] = useState('');
+  const [newEmpPassword, setNewEmpPassword] = useState('');
+  const [newEmpDept, setNewEmpDept] = useState('IT');
+  const [isAddingEmp, setIsAddingEmp] = useState(false);
+  const [empModalMsg, setEmpModalMsg] = useState({ type: '', text: '' });
+
+  // Attendance Logs State
+  const [attendanceLogs, setAttendanceLogs] = useState([]);
+  const [attendanceSearch, setAttendanceSearch] = useState('');
+  const [attendanceDeptFilter, setAttendanceDeptFilter] = useState('All');
+
+  // Work Submissions State
+  const [submissionFilter, setSubmissionFilter] = useState('All');
+  const [submissionSearch, setSubmissionSearch] = useState('');
 
   // Admin Credentials Modal State
   const [showSettings, setShowSettings] = useState(false);
@@ -52,6 +77,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       setFeedbackEditingTaskId(null);
       setFeedbackText('');
       fetchUserModules();
+      fetchAttendanceLogs();
     } catch (err) {
       console.error('Failed to save feedback:', err);
       alert('Failed to save feedback.');
@@ -78,6 +104,17 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       .catch((err) => console.error('Error fetching user modules:', err));
   };
 
+  const fetchAttendanceLogs = () => {
+    axios
+      .get(`${API_BASE_URL}/admin/attendance`)
+      .then((res) => {
+        if (Array.isArray(res.data)) {
+          setAttendanceLogs(res.data);
+        }
+      })
+      .catch((err) => console.error('Error fetching attendance logs:', err));
+  };
+
   useEffect(() => {
     axios
       .get(`${API_BASE_URL}/tasks?role=admin`)
@@ -89,6 +126,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       .catch((err) => console.error('Fetch error:', err));
 
     fetchUserModules();
+    fetchAttendanceLogs();
 
     socket.connect();
     socket.emit('join_room', { role: 'admin' });
@@ -97,6 +135,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       if (!newTask) return;
       setTasks((prev) => (prev.some((t) => t.id === newTask.id) ? prev : [...prev, newTask]));
       fetchUserModules();
+      fetchAttendanceLogs();
     });
 
     socket.on('status_updated', (updatedTask) => {
@@ -105,10 +144,12 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
       );
       fetchUserModules();
+      fetchAttendanceLogs();
     });
 
     socket.on('user_modules_updated', () => {
       fetchUserModules();
+      fetchAttendanceLogs();
     });
 
     return () => {
@@ -149,8 +190,45 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       setTitle('');
       setDescription('');
       setDeadline('');
+      alert('✓ Task successfully allocated to team member!');
     } catch (err) {
       alert('Failed to assign task. Make sure tasks.xlsx is closed.');
+    }
+  };
+
+  const handleAddEmployee = async (e) => {
+    e.preventDefault();
+    setEmpModalMsg({ type: '', text: '' });
+    if (!newEmpName || !newEmpEmail || !newEmpPassword) {
+      setEmpModalMsg({ type: 'error', text: 'Please fill out all required fields.' });
+      return;
+    }
+
+    try {
+      setIsAddingEmp(true);
+      await axios.post(`${API_BASE_URL}/admin/employees`, {
+        name: newEmpName.trim(),
+        username: newEmpUsername.trim() || newEmpName.trim().toLowerCase().replace(/\s+/g, '_'),
+        email: newEmpEmail.trim().toLowerCase(),
+        password: newEmpPassword,
+        department: newEmpDept,
+      });
+
+      setEmpModalMsg({ type: 'success', text: `✓ Successfully added ${newEmpName} to ${newEmpDept} Department!` });
+      setTimeout(() => {
+        setShowAddEmpModal(false);
+        setNewEmpName('');
+        setNewEmpUsername('');
+        setNewEmpEmail('');
+        setNewEmpPassword('');
+        setEmpModalMsg({ type: '', text: '' });
+        fetchUserModules();
+        fetchAttendanceLogs();
+      }, 1200);
+    } catch (err) {
+      setEmpModalMsg({ type: 'error', text: err.response?.data?.error || 'Failed to add employee.' });
+    } finally {
+      setIsAddingEmp(false);
     }
   };
 
@@ -200,11 +278,16 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
     }
   };
 
+  // Status Metrics
   const completedCount = tasks.filter((t) => t?.status === 'Completed').length;
   const inProgressCount = tasks.filter((t) => t?.status === 'In Progress').length;
   const pendingCount = tasks.filter((t) => (t?.status || 'Pending') === 'Pending').length;
   const completionRate = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
 
+  // Submissions count (tasks with proofs or notes)
+  const submissionsList = tasks.filter((t) => (t.proofAttachment && t.proofAttachment.trim()) || (t.userNote && t.userNote.trim()));
+
+  // Visible Tasks filter for Dashboard table
   const visibleTasks = tasks.filter((t) => {
     if (!t) return false;
     const status = t.status || 'Pending';
@@ -229,544 +312,1153 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   });
 
   return (
-    <div className="dashboard">
-      {/* Top Navbar */}
-      <header className="header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <svg width="38" height="38" viewBox="0 0 40 40" fill="none">
-            <rect width="40" height="40" rx="10" fill="#F16F28" />
-            <rect x="9" y="10" width="10" height="8" rx="2" fill="#FFFFFF" />
-            <rect x="9" y="22" width="10" height="8" rx="2" fill="#242158" />
-            <rect x="22" y="10" width="9" height="20" rx="2" fill="#FFFFFF" />
-            <path d="M24.5 19.5L26.2 21.2L29.5 17.5" stroke="#F16F28" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span style={{ fontWeight: 800, fontSize: '21px', color: '#242158' }}>
-            Workly
-          </span>
-        </div>
-
-        <div className="header-actions">
-          <span className="live-indicator">● Live Sync Active</span>
-          <button
-            onClick={() => {
-              setShowSettings(true);
-              setSettingsMsg({ type: '', text: '' });
-              setCurrentPassword('');
-              setNewPassword('');
-              setConfirmPassword('');
-            }}
-            className="btn-settings"
-            title="Update Admin Credentials"
-          >
-            ⚙️ Admin Credentials
-          </button>
-          <button onClick={onLogout} className="btn-logout">Logout</button>
-        </div>
-      </header>
-
-      {/* Navy Bento Hero Banner */}
-      <div className="bento-banner">
-        <div>
-          <span className="banner-tag">Admin Command Center</span>
-          <h2>Team Operations & Live Tracker</h2>
-          <p>
-            Assign tasks to team members and watch their progress notes and status
-            updates appear in real time.
-          </p>
-          <div className="admin-profile-pill">
-            👤 Logged in as: <strong>{adminUser?.name || 'System Admin'}</strong> ({adminUser?.email || 'admin@company.com'})
-          </div>
-        </div>
-
-        <svg width="180" height="110" viewBox="0 0 180 110" fill="none">
-          <rect x="10" y="10" width="160" height="90" rx="14" fill="#FFFFFF" />
-          <rect x="24" y="24" width="60" height="10" rx="5" fill="#242158" />
-          <rect x="24" y="42" width="132" height="12" rx="6" fill="#FFF2EB" />
-          <rect x="24" y="42" width="95" height="12" rx="6" fill="#F16F28" />
-          <rect x="24" y="64" width="132" height="12" rx="6" fill="#FFF2EB" />
-          <rect x="24" y="64" width="118" height="12" rx="6" fill="#242158" />
-          <circle cx="144" cy="28" r="10" fill="#F16F28" />
-          <path d="M140 28L143 31L149 25" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      </div>
-
-      {/* Bento KPI Overall Status Cards */}
-      <div className="admin-overall-stats-grid">
-        <div className="admin-stat-card card-total">
-          <div className="stat-card-header">
-            <span className="stat-card-icon">📋</span>
-            <span className="stat-card-label">Total Assigned</span>
-          </div>
-          <strong className="stat-card-value">{tasks.length}</strong>
-          <span className="stat-card-hint">All tasks created</span>
-        </div>
-
-        <div className="admin-stat-card card-pending">
-          <div className="stat-card-header">
-            <span className="stat-card-icon">⏳</span>
-            <span className="stat-card-label">Pending</span>
-          </div>
-          <strong className="stat-card-value">{pendingCount}</strong>
-          <span className="stat-card-hint">Awaiting start</span>
-        </div>
-
-        <div className="admin-stat-card card-in-progress">
-          <div className="stat-card-header">
-            <span className="stat-card-icon">⚡</span>
-            <span className="stat-card-label">In Progress</span>
-          </div>
-          <strong className="stat-card-value">{inProgressCount}</strong>
-          <span className="stat-card-hint">Actively working</span>
-        </div>
-
-        <div className="admin-stat-card card-completed">
-          <div className="stat-card-header">
-            <span className="stat-card-icon">✅</span>
-            <span className="stat-card-label">Completed</span>
-          </div>
-          <strong className="stat-card-value">{completedCount}</strong>
-          <span className="stat-card-hint">Finished tasks</span>
-        </div>
-
-        <div className="admin-stat-card card-rate">
-          <div className="stat-card-header">
-            <span className="stat-card-icon">🎯</span>
-            <span className="stat-card-label">Completion Rate</span>
-          </div>
-          <strong className="stat-card-value">{completionRate}%</strong>
-          <div className="progress-track">
-            <div className="progress-fill" style={{ width: `${completionRate}%` }} />
-          </div>
-        </div>
-      </div>
-
+    <div className="admin-formal-layout">
       {/* =====================================================
-          INDIVIDUAL USER PROGRESS MODULES
+          1. LEFT NAVIGATION SIDEBAR
       ===================================================== */}
-      <section className="user-modules-container">
-        <div className="modules-header-flex">
-          <div>
-            <span className="banner-tag">Team Progress Analytics</span>
-            <h2 className="modules-title">Individual Team Member Modules</h2>
-            <p className="modules-subtitle">
-              Live tracking for each member: total assigned, completed, in progress, and incomplete tasks saved in Excel.
-            </p>
-          </div>
-
-          <div className="modules-search-box">
-            <input
-              type="text"
-              placeholder="🔍 Search member name or email..."
-              value={memberSearchQuery}
-              onChange={(e) => setMemberSearchQuery(e.target.value)}
-              className="modules-search-input"
-            />
-            {selectedUserFilter !== 'All' && (
-              <button
-                className="btn-clear-user-filter"
-                onClick={() => setSelectedUserFilter('All')}
-                title="Clear member filter"
-              >
-                Clear Filter ✕
-              </button>
-            )}
-          </div>
-        </div>
-
-        {userModules.length === 0 ? (
-          <div className="empty-modules-card">
-            <div className="empty-icon">👥</div>
-            <h4>No Team Members Found Yet</h4>
-            <p>Team members and their working modules will automatically appear here when registered or assigned tasks.</p>
-          </div>
-        ) : (
-          <div className="user-modules-grid">
-            {userModules
-              .filter((m) => {
-                if (!memberSearchQuery) return true;
-                const q = memberSearchQuery.toLowerCase();
-                return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
-              })
-              .map((m) => {
-                const isSelected = selectedUserFilter === m.name || selectedUserFilter === m.email;
-                const initials = (m.name || m.email)
-                  .split(' ')
-                  .map((w) => w[0])
-                  .join('')
-                  .toUpperCase()
-                  .slice(0, 2) || 'TM';
-
-                const progressTier =
-                  m.progressPercent >= 75 ? 'high' : m.progressPercent >= 35 ? 'med' : 'low';
-
-                return (
-                  <div
-                    key={m.userId || m.email}
-                    className={`user-module-card ${isSelected ? 'selected' : ''}`}
-                  >
-                    <div className="module-top">
-                      <div className="member-avatar">{initials}</div>
-                      <div className="member-meta">
-                        <h4>{m.name}</h4>
-                        <span className="member-email">{m.email}</span>
-                      </div>
-                      <span className={`progress-pill ${progressTier}`}>
-                        {m.progressPercent}% Done
-                      </span>
-                    </div>
-
-                    <div className="module-progress-bar-bg">
-                      <div
-                        className="module-progress-bar-fill"
-                        style={{ width: `${m.progressPercent}%` }}
-                      />
-                    </div>
-
-                    <div className="module-stats-grid">
-                      <div className="module-stat-tile assigned">
-                        <span className="stat-label">📋 Assigned</span>
-                        <span className="stat-val">{m.totalAssigned}</span>
-                      </div>
-                      <div className="module-stat-tile completed">
-                        <span className="stat-label">✅ Completed</span>
-                        <span className="stat-val">{m.completedCount}</span>
-                      </div>
-                      <div className="module-stat-tile in-progress">
-                        <span className="stat-label">⚡ In Progress</span>
-                        <span className="stat-val">{m.inProgressCount}</span>
-                      </div>
-                      <div className="module-stat-tile incomplete">
-                        <span className="stat-label">⏳ Incomplete</span>
-                        <span className="stat-val">{m.incompleteCount}</span>
-                      </div>
-                    </div>
-
-                    {m.latestNote ? (
-                      <div className="module-latest-note">
-                        <span className="note-tag">💬 Latest Note:</span>
-                        <p className="note-text">"{m.latestNote}"</p>
-                        <small className="note-task-ref">On: {m.latestNoteTaskTitle}</small>
-                      </div>
-                    ) : (
-                      <div className="module-latest-note empty">
-                        <small>No progress notes recorded yet</small>
-                      </div>
-                    )}
-
-                    {m.proofsCount > 0 && (
-                      <div className="module-proofs-tag">
-                        <span className="proof-icon">📎</span>
-                        <span>{m.proofsCount} Proof{m.proofsCount > 1 ? 's' : ''} Attached</span>
-                        {m.latestProof && (
-                          <a
-                            href={m.latestProof.startsWith('/') ? `${BACKEND_URL}${m.latestProof}` : m.latestProof}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="module-proof-link"
-                            title="Open latest proof of work"
-                          >
-                            View Latest ↗
-                          </a>
-                        )}
-                      </div>
-                    )}
-
-                    {m.feedbacksCount > 0 && (
-                      <div className="module-feedback-tag">
-                        <span className="feedback-icon">💬</span>
-                        <span>{m.feedbacksCount} Feedback{m.feedbacksCount > 1 ? 's' : ''} Given</span>
-                        {m.latestFeedback && (
-                          <span className="module-latest-feedback-preview" title={m.latestFeedback}>
-                            "{m.latestFeedback.slice(0, 26)}{m.latestFeedback.length > 26 ? '...' : ''}"
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="module-actions">
-                      <button
-                        type="button"
-                        className={`btn-module-filter ${isSelected ? 'active' : ''}`}
-                        onClick={() => {
-                          setSelectedUserFilter(isSelected ? 'All' : (m.name || m.email));
-                          const el = document.getElementById('tasks-master-table');
-                          if (el) el.scrollIntoView({ behavior: 'smooth' });
-                        }}
-                      >
-                        {isSelected ? '✓ Showing Tasks' : '🔍 Filter Tasks'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-module-assign"
-                        onClick={() => {
-                          setAssignedTo(m.name || m.email);
-                          const el = document.getElementById('assign-task-form');
-                          if (el) el.scrollIntoView({ behavior: 'smooth' });
-                        }}
-                        title={`Assign new task to ${m.name}`}
-                      >
-                        + Assign Task
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-        )}
-      </section>
-
-      {/* Assign Task Bento Card */}
-      <form onSubmit={handleAssignTask} className="card form-grid" id="assign-task-form">
-        <div className="form-title-row">
-          <h3>+ Assign New Task</h3>
-          <span className="assign-timer-hint">⏱️ Timer starts on assignment</span>
-        </div>
-        <input
-          type="text"
-          list="team-names"
-          placeholder="Team Member Name (e.g. Jessica Taylor)"
-          value={assignedTo}
-          onChange={(e) => setAssignedTo(e.target.value)}
-          required
-        />
-        <datalist id="team-names">
-          {userModules.map((m) => (
-            <option key={m.userId || m.email} value={m.name}>
-              {m.name} {m.username ? `(@${m.username})` : ''} — {m.email}
-            </option>
-          ))}
-        </datalist>
-        <input
-          type="text"
-          placeholder="Task Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          required
-        />
-        <input
-          type="text"
-          placeholder="Instructions (Optional)"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-
-        {/* Task Deadline & Live Timer Limit Input */}
-        <div className="deadline-form-group">
-          <div className="deadline-input-header">
-            <label className="deadline-input-label">
-              ⏱️ Deadline & Timer Limit:
-            </label>
-            <div className="deadline-preset-buttons">
-              <span className="deadline-presets-label">Quick Set:</span>
-              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(30)}>+30m</button>
-              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(60)}>+1h</button>
-              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(240)}>+4h</button>
-              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(1440)}>+1d</button>
-              <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(2880)}>+2d</button>
-              {deadline && (
-                <button type="button" className="btn-preset-clear" onClick={() => setDeadline('')}>Clear ✕</button>
-              )}
+      <aside className="admin-sidebar">
+        <div className="admin-sidebar-top">
+          {/* Brand Logo Header */}
+          <div className="admin-sidebar-brand">
+            <svg width="36" height="36" viewBox="0 0 40 40" fill="none">
+              <rect width="40" height="40" rx="10" fill="#F16F28" />
+              <rect x="9" y="10" width="10" height="8" rx="2" fill="#FFFFFF" />
+              <rect x="9" y="22" width="10" height="8" rx="2" fill="#242158" />
+              <rect x="22" y="10" width="9" height="20" rx="2" fill="#FFFFFF" />
+              <path d="M24.5 19.5L26.2 21.2L29.5 17.5" stroke="#F16F28" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <div className="brand-text-block">
+              <span className="brand-title">Workly</span>
+              <span className="brand-badge">Enterprise Admin</span>
             </div>
           </div>
-          <input
-            type="datetime-local"
-            value={deadline}
-            onChange={(e) => setDeadline(e.target.value)}
-            className="deadline-datetime-input"
-            title="Set task completion deadline"
-          />
-          {deadline && (
-            <small className="deadline-target-note">
-              ✓ Time limit set to: <strong>{new Date(deadline).toLocaleString()}</strong>. Timer will activate on assignment.
-            </small>
-          )}
-        </div>
 
-        <button type="submit" className="btn-primary">Assign Task</button>
-      </form>
-
-      {/* Filter & Search Bar + Master Table */}
-      <div className="card" id="tasks-master-table">
-        {selectedUserFilter !== 'All' && (
-          <div className="active-user-filter-bar">
-            <span>
-              🔍 Showing tasks for team member: <strong>{selectedUserFilter}</strong> ({visibleTasks.length} task{visibleTasks.length !== 1 ? 's' : ''})
-            </span>
+          {/* Navigation Menu */}
+          <nav className="admin-sidebar-nav">
             <button
               type="button"
-              className="btn-clear-filter"
-              onClick={() => setSelectedUserFilter('All')}
+              className={`sidebar-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+              onClick={() => setActiveTab('dashboard')}
             >
-              Show All Members ✕
+              <span className="nav-icon">📊</span>
+              <span className="nav-label">Dashboard</span>
+              <span className="nav-badge">{tasks.length}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`sidebar-nav-item ${activeTab === 'attendance' ? 'active' : ''}`}
+              onClick={() => setActiveTab('attendance')}
+            >
+              <span className="nav-icon">🕒</span>
+              <span className="nav-label">Attendance Logs</span>
+              <span className="nav-badge live">Live</span>
+            </button>
+
+            <button
+              type="button"
+              className={`sidebar-nav-item ${activeTab === 'directory' ? 'active' : ''}`}
+              onClick={() => setActiveTab('directory')}
+            >
+              <span className="nav-icon">👥</span>
+              <span className="nav-label">Employee Directory</span>
+              <span className="nav-badge">{userModules.length}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`sidebar-nav-item ${activeTab === 'allocation' ? 'active' : ''}`}
+              onClick={() => setActiveTab('allocation')}
+            >
+              <span className="nav-icon">✍️</span>
+              <span className="nav-label">Task Allocation</span>
+            </button>
+
+            <button
+              type="button"
+              className={`sidebar-nav-item ${activeTab === 'submissions' ? 'active' : ''}`}
+              onClick={() => setActiveTab('submissions')}
+            >
+              <span className="nav-icon">📥</span>
+              <span className="nav-label">Work Submissions</span>
+              {submissionsList.length > 0 && (
+                <span className="nav-badge orange">{submissionsList.length}</span>
+              )}
+            </button>
+          </nav>
+        </div>
+
+        {/* Sidebar Footer User & Controls */}
+        <div className="admin-sidebar-footer">
+          <div className="sidebar-admin-user">
+            <div className="admin-avatar-chip">
+              {adminName.slice(0, 2).toUpperCase() || 'AD'}
+            </div>
+            <div className="admin-user-details">
+              <span className="admin-user-name">{adminName}</span>
+              <span className="admin-user-email">{adminEmail}</span>
+            </div>
+          </div>
+
+          <div className="sidebar-footer-buttons">
+            <button
+              type="button"
+              className="btn-sidebar-gear"
+              onClick={() => setShowSettings(true)}
+              title="Change Password & Admin Settings"
+            >
+              ⚙️ Settings
+            </button>
+            <button
+              type="button"
+              className="btn-sidebar-signout"
+              onClick={onLogout}
+              title="Logout from Workspace"
+            >
+              🚪 Logout
             </button>
           </div>
-        )}
-        <div className="table-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
-          <div className="filter-pills">
-            {['All', 'Pending', 'In Progress', 'Completed'].map((status) => (
-              <button
-                key={status}
-                type="button"
-                className={filterStatus === status ? 'pill active' : 'pill'}
-                onClick={() => setFilterStatus(status)}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-          <input
-            type="text"
-            placeholder="Search user or task..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ minWidth: '220px' }}
-          />
         </div>
+      </aside>
 
-        <div className="table-wrapper">
-          <table className="admin-master-table">
-            <thead>
-              <tr>
-                <th className="th-assigned">Assigned To</th>
-                <th className="th-task">Task & Instructions</th>
-                <th className="th-deadline">Deadline & Timer</th>
-                <th className="th-note">User Progress Note</th>
-                <th className="th-proof">Proof of Work</th>
-                <th className="th-feedback">Admin Feedback</th>
-                <th className="th-status">Status</th>
-                <th className="th-updated">Last Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleTasks.length === 0 ? (
-                <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '24px', color: '#555282' }}>
-                    No tasks match your current filter.
-                  </td>
-                </tr>
-              ) : (
-                visibleTasks.map((task) => {
-                  const statusText = task.status || 'Pending';
-                  const statusKey = statusText.toLowerCase().replace(/\s+/g, '-');
-                  const timerInfo = getTaskDeadlineInfo(task, currentTime);
+      {/* =====================================================
+          2. MAIN CONTENT VIEWPORT
+      ===================================================== */}
+      <main className="admin-main-viewport">
+        {/* Top Navbar */}
+        <header className="formal-topbar">
+          <div className="topbar-left">
+            <h1 className="topbar-page-title">
+              {activeTab === 'dashboard' && 'Operations Dashboard'}
+              {activeTab === 'attendance' && 'Employee Attendance & Performance Logs'}
+              {activeTab === 'directory' && 'Enterprise Employee Directory'}
+              {activeTab === 'allocation' && 'Task Allocation & Assignment'}
+              {activeTab === 'submissions' && 'Employee Work Submissions & Proofs'}
+            </h1>
+            <span className="topbar-breadcrumb">
+              Workly Enterprise / {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+            </span>
+          </div>
+
+          <div className="topbar-right">
+            <span className="live-pill-tag">● Live Sync Active</span>
+            <button
+              type="button"
+              className="btn-topbar-action"
+              onClick={() => {
+                if (activeTab === 'directory') setShowAddEmpModal(true);
+                else setActiveTab('allocation');
+              }}
+            >
+              {activeTab === 'directory' ? '+ Add Employee' : '+ Allocate Task'}
+            </button>
+          </div>
+        </header>
+
+        {/* ---------------------------------------------------
+            VIEW A: DASHBOARD VIEW
+        ---------------------------------------------------- */}
+        {activeTab === 'dashboard' && (
+          <div className="formal-view-container">
+            {/* Bento Banner */}
+            <div className="bento-banner">
+              <div>
+                <span className="banner-tag">Operations Overview</span>
+                <h2>Executive Command Center</h2>
+                <p>
+                  Real-time status tracking, employee task allocations, countdown timer monitoring, and instant deliverable evaluations.
+                </p>
+                <div className="admin-profile-pill">
+                  👤 Logged in as: <strong>{adminName}</strong> ({adminEmail})
+                </div>
+              </div>
+
+              <svg width="180" height="110" viewBox="0 0 180 110" fill="none">
+                <rect x="10" y="10" width="160" height="90" rx="14" fill="#FFFFFF" />
+                <rect x="24" y="24" width="60" height="10" rx="5" fill="#242158" />
+                <rect x="24" y="42" width="132" height="12" rx="6" fill="#FFF2EB" />
+                <rect x="24" y="42" width="95" height="12" rx="6" fill="#F16F28" />
+                <rect x="24" y="64" width="132" height="12" rx="6" fill="#FFF2EB" />
+                <rect x="24" y="64" width="118" height="12" rx="6" fill="#242158" />
+                <circle cx="144" cy="28" r="10" fill="#F16F28" />
+                <path d="M140 28L143 31L149 25" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </div>
+
+            {/* Bento KPI Overall Status Cards */}
+            <div className="admin-overall-stats-grid">
+              <div className="admin-stat-card card-total">
+                <div className="stat-card-header">
+                  <span className="stat-card-icon">📋</span>
+                  <span className="stat-card-label">Total Assigned</span>
+                </div>
+                <strong className="stat-card-value">{tasks.length}</strong>
+                <span className="stat-card-hint">All tasks created</span>
+              </div>
+
+              <div className="admin-stat-card card-pending">
+                <div className="stat-card-header">
+                  <span className="stat-card-icon">⏳</span>
+                  <span className="stat-card-label">Pending</span>
+                </div>
+                <strong className="stat-card-value">{pendingCount}</strong>
+                <span className="stat-card-hint">Awaiting start</span>
+              </div>
+
+              <div className="admin-stat-card card-in-progress">
+                <div className="stat-card-header">
+                  <span className="stat-card-icon">⚡</span>
+                  <span className="stat-card-label">In Progress</span>
+                </div>
+                <strong className="stat-card-value">{inProgressCount}</strong>
+                <span className="stat-card-hint">Actively working</span>
+              </div>
+
+              <div className="admin-stat-card card-completed">
+                <div className="stat-card-header">
+                  <span className="stat-card-icon">✅</span>
+                  <span className="stat-card-label">Completed</span>
+                </div>
+                <strong className="stat-card-value">{completedCount}</strong>
+                <span className="stat-card-hint">Finished tasks</span>
+              </div>
+
+              <div className="admin-stat-card card-rate">
+                <div className="stat-card-header">
+                  <span className="stat-card-icon">🎯</span>
+                  <span className="stat-card-label">Completion Rate</span>
+                </div>
+                <strong className="stat-card-value">{completionRate}%</strong>
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${completionRate}%` }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Overall Tasks Master Table */}
+            <div className="card" id="tasks-master-table">
+              <div className="table-header-flex">
+                <div>
+                  <h3 className="section-card-title">Overall Task Details & Deadlines</h3>
+                  <p className="section-card-subtitle">
+                    Live tracking of deliverables, timer limits, submitted proofs, and supervisor feedback.
+                  </p>
+                </div>
+
+                <div className="filter-controls-row">
+                  <div className="filter-pills">
+                    {['All', 'Pending', 'In Progress', 'Completed'].map((status) => (
+                      <button
+                        key={status}
+                        type="button"
+                        className={filterStatus === status ? 'pill active' : 'pill'}
+                        onClick={() => setFilterStatus(status)}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder="🔍 Search user or task..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="formal-search-input"
+                  />
+                </div>
+              </div>
+
+              <div className="table-wrapper">
+                <table className="admin-master-table">
+                  <thead>
+                    <tr>
+                      <th className="th-assigned">Assigned To</th>
+                      <th className="th-task">Task & Instructions</th>
+                      <th className="th-deadline">Deadline & Timer</th>
+                      <th className="th-note">User Progress Note</th>
+                      <th className="th-proof">Proof of Work</th>
+                      <th className="th-feedback">Admin Feedback</th>
+                      <th className="th-status">Status</th>
+                      <th className="th-updated">Last Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleTasks.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" style={{ textAlign: 'center', padding: '36px', color: '#555282' }}>
+                          No tasks match your current filter or no tasks assigned yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      visibleTasks.map((task) => {
+                        const statusText = task.status || 'Pending';
+                        const statusKey = statusText.toLowerCase().replace(/\s+/g, '-');
+                        const timerInfo = getTaskDeadlineInfo(task, currentTime);
+
+                        return (
+                          <tr key={task.id} className={`admin-task-row row-${statusKey} ${timerInfo.rowClass}`}>
+                            <td className="td-assigned"><strong>{task.assignedTo}</strong></td>
+                            <td className="td-task">
+                              <div style={{ fontWeight: 700 }}>{task.title}</div>
+                              {task.description && (
+                                <div style={{ fontSize: '13px', color: '#555282', marginTop: '3px' }}>
+                                  {task.description}
+                                </div>
+                              )}
+                            </td>
+                            <td className={`deadline-col-cell ${timerInfo.colClass}`}>
+                              <div className={`deadline-timer-badge ${timerInfo.badgeClass}`}>
+                                <div className="timer-main-badge">{timerInfo.primaryText}</div>
+                                {timerInfo.secondaryText && (
+                                  <div className="timer-sub-text">{timerInfo.secondaryText}</div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="td-note">
+                              {task.userNote ? (
+                                <span className="note-bubble">{task.userNote}</span>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>No notes yet</span>
+                              )}
+                            </td>
+                            <td className="td-proof">
+                              {task.proofAttachment ? (
+                                <a
+                                  href={task.proofAttachment.startsWith('/') ? `${BACKEND_URL}${task.proofAttachment}` : task.proofAttachment}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="admin-proof-badge"
+                                  title={`Open proof: ${task.proofAttachment}`}
+                                >
+                                  {task.proofAttachment.startsWith('/uploads/') ? '📄 View Document ↗' : '🔗 Open Link ↗'}
+                                </a>
+                              ) : (
+                                <span style={{ color: '#94a3b8', fontSize: '13px' }}>— No proof —</span>
+                              )}
+                            </td>
+                            <td className="td-feedback">
+                              {feedbackEditingTaskId === task.id ? (
+                                <div className="feedback-edit-cell">
+                                  <textarea
+                                    className="feedback-inline-textarea"
+                                    placeholder="Write guidance or review notes for user..."
+                                    value={feedbackText}
+                                    onChange={(e) => setFeedbackText(e.target.value)}
+                                    rows={2}
+                                    autoFocus
+                                  />
+                                  <div className="feedback-edit-actions">
+                                    <button
+                                      type="button"
+                                      className="btn-feedback-save"
+                                      disabled={submittingFeedback}
+                                      onClick={() => handleSaveFeedback(task.id)}
+                                    >
+                                      {submittingFeedback ? 'Saving...' : 'Send 💬'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn-feedback-cancel"
+                                      onClick={() => setFeedbackEditingTaskId(null)}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : task.adminFeedback ? (
+                                <div className="admin-feedback-display">
+                                  <span className="feedback-quote-text" title={task.adminFeedback}>
+                                    "{task.adminFeedback}"
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="btn-feedback-edit"
+                                    title="Edit feedback"
+                                    onClick={() => handleOpenFeedback(task)}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn-give-feedback"
+                                  onClick={() => handleOpenFeedback(task)}
+                                >
+                                  + Give Feedback 💬
+                                </button>
+                              )}
+                            </td>
+                            <td className="td-status status-cell">
+                              <span className={`badge ${statusText.toLowerCase().replace(' ', '-')}`}>
+                                {statusText}
+                              </span>
+                            </td>
+                            <td className="td-updated">{task.updatedAt || '—'}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------------------------------------------
+            VIEW B: ATTENDANCE LOGS VIEW
+        ---------------------------------------------------- */}
+        {activeTab === 'attendance' && (
+          <div className="formal-view-container">
+            {/* Attendance KPI Summary */}
+            <div className="attendance-kpi-row">
+              <div className="att-kpi-card">
+                <span className="att-kpi-label">Active Staff Monitored</span>
+                <strong className="att-kpi-value">{attendanceLogs.length}</strong>
+                <span className="att-kpi-sub">100% Present Today</span>
+              </div>
+              <div className="att-kpi-card green">
+                <span className="att-kpi-label">Attendance Rate</span>
+                <strong className="att-kpi-value">100%</strong>
+                <span className="att-kpi-sub">All checked in</span>
+              </div>
+              <div className="att-kpi-card orange">
+                <span className="att-kpi-label">Active Work Engagement</span>
+                <strong className="att-kpi-value">
+                  {attendanceLogs.filter((a) => a.inProgressCount > 0 || a.totalAssigned > 0).length} Members
+                </strong>
+                <span className="att-kpi-sub">On current deliverables</span>
+              </div>
+              <div className="att-kpi-card navy">
+                <span className="att-kpi-label">Avg Performance Rating</span>
+                <strong className="att-kpi-value">4.9 / 5.0</strong>
+                <span className="att-kpi-sub">High Delivery Standard</span>
+              </div>
+            </div>
+
+            {/* Attendance Table Card */}
+            <div className="card">
+              <div className="table-header-flex">
+                <div>
+                  <h3 className="section-card-title">Employee Attendance, Performance & Activity Log</h3>
+                  <p className="section-card-subtitle">
+                    Real-time operational status, daily check-in time, performance ratings, and delivery pace.
+                  </p>
+                </div>
+
+                <div className="filter-controls-row">
+                  <div className="filter-pills">
+                    {['All', 'IT', 'HRD', 'Marketing'].map((dept) => (
+                      <button
+                        key={dept}
+                        type="button"
+                        className={attendanceDeptFilter === dept ? 'pill active' : 'pill'}
+                        onClick={() => setAttendanceDeptFilter(dept)}
+                      >
+                        {dept === 'All' ? 'All Depts' : dept}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder="🔍 Search employee name..."
+                    value={attendanceSearch}
+                    onChange={(e) => setAttendanceSearch(e.target.value)}
+                    className="formal-search-input"
+                  />
+                </div>
+              </div>
+
+              <div className="table-wrapper">
+                <table className="admin-master-table">
+                  <thead>
+                    <tr>
+                      <th>Employee Profile</th>
+                      <th>Department</th>
+                      <th>Attendance Status</th>
+                      <th>Check-in Time</th>
+                      <th>Current Work Status</th>
+                      <th>Tasks Velocity</th>
+                      <th>Performance Rating</th>
+                      <th>Last Active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceLogs
+                      .filter((emp) => {
+                        const matchesDept = attendanceDeptFilter === 'All' || emp.department === attendanceDeptFilter;
+                        const matchesSearch = !attendanceSearch || emp.name.toLowerCase().includes(attendanceSearch.toLowerCase());
+                        return matchesDept && matchesSearch;
+                      })
+                      .map((emp) => (
+                        <tr key={emp.userId}>
+                          <td>
+                            <div className="att-profile-cell">
+                              <div className="att-avatar">
+                                {emp.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <strong className="att-emp-name">{emp.name}</strong>
+                                <span className="att-emp-email">@{emp.username} • {emp.email}</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`dept-badge ${emp.department.toLowerCase()}`}>
+                              {emp.department}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="attendance-pill present">
+                              <span className="dot" /> Present
+                            </span>
+                          </td>
+                          <td>
+                            <span className="checkin-time-text">🕒 {emp.checkInTime}</span>
+                          </td>
+                          <td>
+                            <span className={`work-status-badge ${emp.inProgressCount > 0 ? 'working' : 'ready'}`}>
+                              {emp.workStatus}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="velocity-cell">
+                              <span>{emp.completedCount} / {emp.totalAssigned} done</span>
+                              <div className="mini-progress-bar">
+                                <div
+                                  className="mini-progress-fill"
+                                  style={{ width: `${emp.completionRate}%` }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="rating-cell">
+                              <span className="stars-text">{emp.stars}</span>
+                              <span className="tier-text">{emp.performanceTier}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className="last-active-text">{emp.lastActive}</span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------------------------------------------
+            VIEW C: EMPLOYEE DIRECTORY VIEW
+        ---------------------------------------------------- */}
+        {activeTab === 'directory' && (
+          <div className="formal-view-container">
+            {/* Department Metric Cards */}
+            <div className="dept-summary-row">
+              <div
+                className={`dept-summary-card it ${selectedDept === 'IT' ? 'active' : ''}`}
+                onClick={() => setSelectedDept(selectedDept === 'IT' ? 'All' : 'IT')}
+              >
+                <div className="dept-card-top">
+                  <span className="dept-icon">💻</span>
+                  <span className="dept-tag">IT Department</span>
+                </div>
+                <h3>Information Technology</h3>
+                <p>Software development, bug fixes, architecture & infrastructure</p>
+                <div className="dept-card-stats">
+                  <span>{userModules.filter((m) => (m.department || 'IT') === 'IT').length} Members</span>
+                  <span>•</span>
+                  <span>{userModules.filter((m) => (m.department || 'IT') === 'IT').reduce((acc, m) => acc + m.totalAssigned, 0)} Tasks</span>
+                </div>
+              </div>
+
+              <div
+                className={`dept-summary-card hrd ${selectedDept === 'HRD' ? 'active' : ''}`}
+                onClick={() => setSelectedDept(selectedDept === 'HRD' ? 'All' : 'HRD')}
+              >
+                <div className="dept-card-top">
+                  <span className="dept-icon">👥</span>
+                  <span className="dept-tag">HRD Department</span>
+                </div>
+                <h3>Human Resource Dev</h3>
+                <p>Talent management, compliance, onboarding & team performance</p>
+                <div className="dept-card-stats">
+                  <span>{userModules.filter((m) => m.department === 'HRD').length} Members</span>
+                  <span>•</span>
+                  <span>{userModules.filter((m) => m.department === 'HRD').reduce((acc, m) => acc + m.totalAssigned, 0)} Tasks</span>
+                </div>
+              </div>
+
+              <div
+                className={`dept-summary-card mkt ${selectedDept === 'Marketing' ? 'active' : ''}`}
+                onClick={() => setSelectedDept(selectedDept === 'Marketing' ? 'All' : 'Marketing')}
+              >
+                <div className="dept-card-top">
+                  <span className="dept-icon">📈</span>
+                  <span className="dept-tag">Marketing Department</span>
+                </div>
+                <h3>Marketing & Growth</h3>
+                <p>Brand visibility, campaigns, digital outreach & client proposals</p>
+                <div className="dept-card-stats">
+                  <span>{userModules.filter((m) => m.department === 'Marketing').length} Members</span>
+                  <span>•</span>
+                  <span>{userModules.filter((m) => m.department === 'Marketing').reduce((acc, m) => acc + m.totalAssigned, 0)} Tasks</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Department Filter & Action Bar */}
+            <div className="directory-action-bar">
+              <div className="filter-pills">
+                {['All', 'IT', 'HRD', 'Marketing'].map((dept) => (
+                  <button
+                    key={dept}
+                    type="button"
+                    className={selectedDept === dept ? 'pill active' : 'pill'}
+                    onClick={() => setSelectedDept(dept)}
+                  >
+                    {dept === 'All' ? 'All Departments' : `${dept} Dept`}
+                  </button>
+                ))}
+              </div>
+
+              <div className="dir-search-wrap">
+                <input
+                  type="text"
+                  placeholder="🔍 Search directory by name or email..."
+                  value={memberSearchQuery}
+                  onChange={(e) => setMemberSearchQuery(e.target.value)}
+                  className="formal-search-input"
+                />
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setShowAddEmpModal(true)}
+                >
+                  + Add New Employee
+                </button>
+              </div>
+            </div>
+
+            {/* Employee Modules Grid */}
+            <div className="user-modules-grid">
+              {userModules
+                .filter((m) => {
+                  const mDept = m.department || 'IT';
+                  const matchesDept = selectedDept === 'All' || mDept === selectedDept;
+                  const q = memberSearchQuery.toLowerCase();
+                  const matchesQuery = !q || m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q);
+                  return matchesDept && matchesQuery;
+                })
+                .map((m) => {
+                  const dept = m.department || 'IT';
+                  const initials = m.name.slice(0, 2).toUpperCase();
 
                   return (
-                    <tr key={task.id} className={`admin-task-row row-${statusKey} ${timerInfo.rowClass}`}>
-                      <td className="td-assigned"><strong>{task.assignedTo}</strong></td>
-                      <td className="td-task">
-                        <div style={{ fontWeight: 700 }}>{task.title}</div>
-                        {task.description && (
-                          <div style={{ fontSize: '13px', color: '#555282', marginTop: '3px' }}>
-                            {task.description}
-                          </div>
-                        )}
-                      </td>
-                      <td className={`deadline-col-cell ${timerInfo.colClass}`}>
-                        <div className={`deadline-timer-badge ${timerInfo.badgeClass}`}>
-                          <div className="timer-main-badge">{timerInfo.primaryText}</div>
-                          {timerInfo.secondaryText && (
-                            <div className="timer-sub-text">{timerInfo.secondaryText}</div>
+                    <div key={m.userId || m.email} className="user-module-card">
+                      <div className="module-top">
+                        <div className="member-avatar">{initials}</div>
+                        <div className="member-meta">
+                          <h4>{m.name}</h4>
+                          <span className="member-email">@{m.username} • {m.email}</span>
+                          <span className={`dept-badge ${dept.toLowerCase()}`}>{dept}</span>
+                        </div>
+                        <span className="progress-pill high">
+                          {m.progressPercent}% Done
+                        </span>
+                      </div>
+
+                      <div className="module-progress-bar-bg">
+                        <div
+                          className="module-progress-bar-fill"
+                          style={{ width: `${m.progressPercent}%` }}
+                        />
+                      </div>
+
+                      <div className="module-stats-grid">
+                        <div className="module-stat-tile assigned">
+                          <span className="stat-label">📋 Assigned</span>
+                          <span className="stat-val">{m.totalAssigned}</span>
+                        </div>
+                        <div className="module-stat-tile completed">
+                          <span className="stat-label">✅ Completed</span>
+                          <span className="stat-val">{m.completedCount}</span>
+                        </div>
+                        <div className="module-stat-tile in-progress">
+                          <span className="stat-label">⚡ In Progress</span>
+                          <span className="stat-val">{m.inProgressCount}</span>
+                        </div>
+                        <div className="module-stat-tile incomplete">
+                          <span className="stat-label">⏳ Incomplete</span>
+                          <span className="stat-val">{m.incompleteCount}</span>
+                        </div>
+                      </div>
+
+                      {m.latestNote ? (
+                        <div className="module-latest-note">
+                          <span className="note-tag">💬 Latest Note:</span>
+                          <p className="note-text">"{m.latestNote}"</p>
+                          <small className="note-task-ref">On: {m.latestNoteTaskTitle}</small>
+                        </div>
+                      ) : (
+                        <div className="module-latest-note empty">
+                          <small>No progress notes recorded yet</small>
+                        </div>
+                      )}
+
+                      {m.proofsCount > 0 && (
+                        <div className="module-proofs-tag">
+                          <span className="proof-icon">📎</span>
+                          <span>{m.proofsCount} Proof{m.proofsCount > 1 ? 's' : ''} Attached</span>
+                          {m.latestProof && (
+                            <a
+                              href={m.latestProof.startsWith('/') ? `${BACKEND_URL}${m.latestProof}` : m.latestProof}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="module-proof-link"
+                            >
+                              View Latest ↗
+                            </a>
                           )}
                         </div>
-                      </td>
-                      <td className="td-note">
-                        {task.userNote ? (
-                          <span className="note-bubble">{task.userNote}</span>
-                        ) : (
-                          <span style={{ color: '#94a3b8' }}>No notes yet</span>
-                        )}
-                      </td>
-                      <td className="td-proof">
-                        {task.proofAttachment ? (
-                          <a
-                            href={task.proofAttachment.startsWith('/') ? `${BACKEND_URL}${task.proofAttachment}` : task.proofAttachment}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="admin-proof-badge"
-                            title={`Open proof: ${task.proofAttachment}`}
-                          >
-                            {task.proofAttachment.startsWith('/uploads/') ? '📄 View Document ↗' : '🔗 Open Link ↗'}
-                          </a>
-                        ) : (
-                          <span style={{ color: '#94a3b8', fontSize: '13px' }}>— No proof —</span>
-                        )}
-                      </td>
-                      <td className="td-feedback">
-                        {feedbackEditingTaskId === task.id ? (
-                          <div className="feedback-edit-cell">
-                            <textarea
-                              className="feedback-inline-textarea"
-                              placeholder="Write guidance or review notes for user..."
-                              value={feedbackText}
-                              onChange={(e) => setFeedbackText(e.target.value)}
-                              rows={2}
-                              autoFocus
-                            />
-                            <div className="feedback-edit-actions">
-                              <button
-                                type="button"
-                                className="btn-feedback-save"
-                                disabled={submittingFeedback}
-                                onClick={() => handleSaveFeedback(task.id)}
-                              >
-                                {submittingFeedback ? 'Saving...' : 'Send 💬'}
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-feedback-cancel"
-                                onClick={() => setFeedbackEditingTaskId(null)}
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                        ) : task.adminFeedback ? (
-                          <div className="admin-feedback-display">
-                            <span className="feedback-quote-text" title={task.adminFeedback}>
-                              "{task.adminFeedback}"
-                            </span>
-                            <button
-                              type="button"
-                              className="btn-feedback-edit"
-                              title="Edit feedback"
-                              onClick={() => handleOpenFeedback(task)}
-                            >
-                              ✏️ Edit
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn-give-feedback"
-                            onClick={() => handleOpenFeedback(task)}
-                          >
-                            + Give Feedback 💬
-                          </button>
-                        )}
-                      </td>
-                      <td className="td-status status-cell">
-                        <span className={`badge ${statusText.toLowerCase().replace(' ', '-')}`}>
-                          {statusText}
-                        </span>
-                      </td>
-                      <td className="td-updated">{task.updatedAt || '—'}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                      )}
 
-      {/* Admin Credentials Modal */}
+                      <div className="module-actions">
+                        <button
+                          type="button"
+                          className="btn-module-assign"
+                          onClick={() => {
+                            setAssignedTo(m.name);
+                            setActiveTab('allocation');
+                          }}
+                        >
+                          + Allocate Task
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {/* ---------------------------------------------------
+            VIEW D: TASK ALLOCATION VIEW
+        ---------------------------------------------------- */}
+        {activeTab === 'allocation' && (
+          <div className="formal-view-container">
+            <div className="card allocation-card">
+              <div className="form-title-row">
+                <div>
+                  <h3 className="section-card-title">Task Allocation Center</h3>
+                  <p className="section-card-subtitle">
+                    Assign deliverables with precision, choose team members by department, and enforce live countdown deadline timers.
+                  </p>
+                </div>
+                <span className="assign-timer-hint">⏱️ Timer activates on assignment</span>
+              </div>
+
+              <form onSubmit={handleAssignTask} className="allocation-form-grid">
+                <div className="form-row-duo">
+                  <div className="input-group">
+                    <label>Filter By Department (Optional)</label>
+                    <select
+                      value={allocationDept}
+                      onChange={(e) => setAllocationDept(e.target.value)}
+                      className="formal-select"
+                    >
+                      <option value="All">All Departments</option>
+                      <option value="IT">IT Department</option>
+                      <option value="HRD">HRD Department</option>
+                      <option value="Marketing">Marketing Department</option>
+                    </select>
+                  </div>
+
+                  <div className="input-group">
+                    <label>Team Member Name <span style={{ color: '#EF4444' }}>*</span></label>
+                    <input
+                      type="text"
+                      list="allocation-team-names"
+                      placeholder="Type or select member (e.g. Jessica Taylor)"
+                      value={assignedTo}
+                      onChange={(e) => setAssignedTo(e.target.value)}
+                      required
+                      className="formal-input"
+                    />
+                    <datalist id="allocation-team-names">
+                      {userModules
+                        .filter((m) => allocationDept === 'All' || (m.department || 'IT') === allocationDept)
+                        .map((m) => (
+                          <option key={m.userId || m.email} value={m.name}>
+                            {m.name} (@{m.username}) — {m.department || 'IT'}
+                          </option>
+                        ))}
+                    </datalist>
+                  </div>
+                </div>
+
+                <div className="input-group">
+                  <label>Deliverable Title <span style={{ color: '#EF4444' }}>*</span></label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Build Payment Gateway Integration"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    required
+                    className="formal-input"
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label>Work Instructions & Acceptance Criteria (Optional)</label>
+                  <textarea
+                    placeholder="Provide detailed instructions, requirements, deliverables, and expectations..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={3}
+                    className="formal-textarea"
+                  />
+                </div>
+
+                {/* Deadline & Timer */}
+                <div className="deadline-form-group">
+                  <div className="deadline-input-header">
+                    <label className="deadline-input-label">
+                      ⏱️ Deadline & Timer Limit (Time Constraint):
+                    </label>
+                    <div className="deadline-preset-buttons">
+                      <span className="deadline-presets-label">Quick Set:</span>
+                      <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(30)}>+30m</button>
+                      <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(60)}>+1h</button>
+                      <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(240)}>+4h</button>
+                      <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(1440)}>+1d</button>
+                      <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(2880)}>+2d</button>
+                      {deadline && (
+                        <button type="button" className="btn-preset-clear" onClick={() => setDeadline('')}>Clear ✕</button>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="datetime-local"
+                    value={deadline}
+                    onChange={(e) => setDeadline(e.target.value)}
+                    className="deadline-datetime-input"
+                  />
+                  {deadline && (
+                    <small className="deadline-target-note">
+                      ✓ Time limit set: <strong>{new Date(deadline).toLocaleString()}</strong>. Real-time timer starts upon allocation.
+                    </small>
+                  )}
+                </div>
+
+                <div className="allocation-submit-row">
+                  <button type="submit" className="btn-primary allocate-submit-btn">
+                    + Allocate Deliverable Now
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------------------------------------------
+            VIEW E: WORK SUBMISSIONS REVIEW VIEW
+        ---------------------------------------------------- */}
+        {activeTab === 'submissions' && (
+          <div className="formal-view-container">
+            <div className="card">
+              <div className="table-header-flex">
+                <div>
+                  <h3 className="section-card-title">Employee Work Submissions & Proof of Work</h3>
+                  <p className="section-card-subtitle">
+                    Review submitted deliverables, inspect uploaded documents or project links, and send feedback.
+                  </p>
+                </div>
+
+                <div className="filter-controls-row">
+                  <div className="filter-pills">
+                    {['All', 'With Documents', 'With Links', 'Feedback Given'].map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        className={submissionFilter === type ? 'pill active' : 'pill'}
+                        onClick={() => setSubmissionFilter(type)}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder="🔍 Search submissions..."
+                    value={submissionSearch}
+                    onChange={(e) => setSubmissionSearch(e.target.value)}
+                    className="formal-search-input"
+                  />
+                </div>
+              </div>
+
+              <div className="table-wrapper">
+                <table className="admin-master-table">
+                  <thead>
+                    <tr>
+                      <th>Deliverable & Member</th>
+                      <th>Proof of Work (Attachment / Link)</th>
+                      <th>Progress Notes</th>
+                      <th>Submission Status</th>
+                      <th>Deadline Compliance</th>
+                      <th>Admin Feedback</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {submissionsList
+                      .filter((t) => {
+                        if (submissionFilter === 'With Documents') {
+                          return t.proofAttachment && t.proofAttachment.startsWith('/uploads/');
+                        }
+                        if (submissionFilter === 'With Links') {
+                          return t.proofAttachment && !t.proofAttachment.startsWith('/uploads/');
+                        }
+                        if (submissionFilter === 'Feedback Given') {
+                          return t.adminFeedback && t.adminFeedback.trim().length > 0;
+                        }
+                        return true;
+                      })
+                      .filter((t) => {
+                        if (!submissionSearch) return true;
+                        const q = submissionSearch.toLowerCase();
+                        return (
+                          t.title.toLowerCase().includes(q) ||
+                          t.assignedTo.toLowerCase().includes(q) ||
+                          (t.userNote && t.userNote.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((task) => {
+                        const timerInfo = getTaskDeadlineInfo(task, currentTime);
+                        return (
+                          <tr key={task.id} className={`admin-task-row ${timerInfo.rowClass}`}>
+                            <td>
+                              <strong className="sub-task-title">{task.title}</strong>
+                              <span className="sub-task-assignee">Assigned to: <strong>{task.assignedTo}</strong></span>
+                              {task.description && (
+                                <p className="sub-task-desc">{task.description}</p>
+                              )}
+                            </td>
+                            <td>
+                              {task.proofAttachment ? (
+                                <a
+                                  href={task.proofAttachment.startsWith('/') ? `${BACKEND_URL}${task.proofAttachment}` : task.proofAttachment}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="admin-proof-badge"
+                                >
+                                  {task.proofAttachment.startsWith('/uploads/') ? '📄 View Document ↗' : '🔗 Open Link ↗'}
+                                </a>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>— No attachment —</span>
+                              )}
+                            </td>
+                            <td>
+                              {task.userNote ? (
+                                <span className="note-bubble">{task.userNote}</span>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>— No note provided —</span>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`badge ${(task.status || 'Pending').toLowerCase().replace(' ', '-')}`}>
+                                {task.status || 'Pending'}
+                              </span>
+                            </td>
+                            <td>
+                              <div className={`deadline-timer-badge ${timerInfo.badgeClass}`}>
+                                <div className="timer-main-badge">{timerInfo.primaryText}</div>
+                                {timerInfo.secondaryText && (
+                                  <div className="timer-sub-text">{timerInfo.secondaryText}</div>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              {feedbackEditingTaskId === task.id ? (
+                                <div className="feedback-edit-cell">
+                                  <textarea
+                                    className="feedback-inline-textarea"
+                                    placeholder="Write guidance or review notes for user..."
+                                    value={feedbackText}
+                                    onChange={(e) => setFeedbackText(e.target.value)}
+                                    rows={2}
+                                    autoFocus
+                                  />
+                                  <div className="feedback-edit-actions">
+                                    <button
+                                      type="button"
+                                      className="btn-feedback-save"
+                                      disabled={submittingFeedback}
+                                      onClick={() => handleSaveFeedback(task.id)}
+                                    >
+                                      {submittingFeedback ? 'Saving...' : 'Send 💬'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn-feedback-cancel"
+                                      onClick={() => setFeedbackEditingTaskId(null)}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : task.adminFeedback ? (
+                                <div className="admin-feedback-display">
+                                  <span className="feedback-quote-text" title={task.adminFeedback}>
+                                    "{task.adminFeedback}"
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="btn-feedback-edit"
+                                    title="Edit feedback"
+                                    onClick={() => handleOpenFeedback(task)}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn-give-feedback"
+                                  onClick={() => handleOpenFeedback(task)}
+                                >
+                                  + Give Feedback 💬
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* =====================================================
+          3. ADD NEW EMPLOYEE MODAL (DEPARTMENT WISE)
+      ===================================================== */}
+      {showAddEmpModal && (
+        <div className="modal-overlay" onClick={() => setShowAddEmpModal(false)}>
+          <div className="admin-settings-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>Add New Employee</h3>
+                <p>Register new staff member into enterprise department modules</p>
+              </div>
+              <button className="btn-close" onClick={() => setShowAddEmpModal(false)}>✕</button>
+            </div>
+
+            {empModalMsg.text && (
+              <div className={`settings-alert ${empModalMsg.type}`}>
+                {empModalMsg.type === 'success' ? '✓ ' : '⚠️ '}
+                {empModalMsg.text}
+              </div>
+            )}
+
+            <form onSubmit={handleAddEmployee} className="settings-form">
+              <div className="form-group">
+                <label>Department Selection <span className="required-star">*</span></label>
+                <select
+                  value={newEmpDept}
+                  onChange={(e) => setNewEmpDept(e.target.value)}
+                  className="formal-select"
+                  required
+                >
+                  <option value="IT">💻 IT Department (Engineering & Tech)</option>
+                  <option value="HRD">👥 HRD Department (Human Resources)</option>
+                  <option value="Marketing">📈 Marketing Department (Sales & Growth)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Employee Full Name <span className="required-star">*</span></label>
+                <input
+                  type="text"
+                  required
+                  value={newEmpName}
+                  onChange={(e) => setNewEmpName(e.target.value)}
+                  placeholder="e.g. Sanjana Medapati"
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Username (Login ID)</label>
+                  <input
+                    type="text"
+                    value={newEmpUsername}
+                    onChange={(e) => setNewEmpUsername(e.target.value)}
+                    placeholder="e.g. sanzz"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Official Email <span className="required-star">*</span></label>
+                  <input
+                    type="email"
+                    required
+                    value={newEmpEmail}
+                    onChange={(e) => setNewEmpEmail(e.target.value)}
+                    placeholder="e.g. sanz@company.com"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Default Password <span className="required-star">*</span></label>
+                <input
+                  type="password"
+                  required
+                  value={newEmpPassword}
+                  onChange={(e) => setNewEmpPassword(e.target.value)}
+                  placeholder="Set initial password (min 6 chars)"
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  onClick={() => setShowAddEmpModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-save"
+                  disabled={isAddingEmp}
+                >
+                  {isAddingEmp ? 'Adding Employee...' : '+ Create Employee Profile'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          4. ADMIN CREDENTIALS & SETTINGS MODAL
+      ===================================================== */}
       {showSettings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
           <div className="admin-settings-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h3>Company Admin Credentials</h3>
-                <p>Update administrator login details saved in the master Excel store</p>
+                <h3>Admin Settings & Password</h3>
+                <p>Update administrator login credentials saved in tasks.xlsx</p>
               </div>
               <button className="btn-close" onClick={() => setShowSettings(false)}>✕</button>
             </div>
@@ -850,7 +1542,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                   className="btn-save"
                   disabled={isUpdatingCredentials}
                 >
-                  {isUpdatingCredentials ? 'Saving...' : 'Save Changes'}
+                  {isUpdatingCredentials ? 'Saving Changes...' : 'Save Settings'}
                 </button>
               </div>
             </form>

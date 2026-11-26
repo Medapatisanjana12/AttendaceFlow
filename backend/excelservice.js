@@ -65,13 +65,14 @@ async function initExcel() {
       { header: 'passwordHash', key: 'passwordHash', width: 65 },
       { header: 'role', key: 'role', width: 15 },
       { header: 'username', key: 'username', width: 25 },
+      { header: 'department', key: 'department', width: 25 },
     ];
 
     // Seed default Admin account and default user
     const defaultAdminHash = await bcrypt.hash('admin123', 10);
     const defaultUserHash = await bcrypt.hash('user123', 10);
-    userSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin']);
-    userSheet.addRow(['2', 'Jessica Taylor', 'jessica12@gmail.com', defaultUserHash, 'user', 'jessica']);
+    userSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin', 'Management']);
+    userSheet.addRow(['2', 'Jessica Taylor', 'jessica12@gmail.com', defaultUserHash, 'user', 'jessica', 'Marketing']);
 
     await workbook.xlsx.writeFile(FILE_PATH);
     console.log('Created tasks.xlsx with Tasks and Users sheets');
@@ -140,6 +141,27 @@ async function initExcel() {
           userSheet.getColumn(6).width = 25;
           needsSave = true;
         }
+        if (userSheet.getCell(1, 7).value !== 'department') {
+          userSheet.getCell(1, 7).value = 'department';
+          userSheet.getColumn(7).width = 25;
+          userSheet.eachRow((row, rowNumber) => {
+            if (rowNumber === 1) return;
+            if (!row.getCell(7).value) {
+              const uRole = getCellValueString(row.getCell(5));
+              const uName = getCellValueString(row.getCell(2)).toLowerCase();
+              if (uRole === 'admin') {
+                row.getCell(7).value = 'Management';
+              } else if (uName.includes('sanz')) {
+                row.getCell(7).value = 'IT';
+              } else if (uName.includes('jessica')) {
+                row.getCell(7).value = 'Marketing';
+              } else {
+                row.getCell(7).value = 'IT';
+              }
+            }
+          });
+          needsSave = true;
+        }
       }
 
       if (needsSave) {
@@ -186,6 +208,7 @@ async function findUserByNameOrEmail(identifier) {
         passwordHash: getCellValueString(row.getCell(4)),
         role: getCellValueString(row.getCell(5)) || 'user',
         username: rowUsername || rowName.replace(/\s+/g, '_'),
+        department: getCellValueString(row.getCell(7)) || 'IT',
       };
     }
   });
@@ -196,7 +219,7 @@ async function findUserByEmail(email) {
   return findUserByNameOrEmail(email);
 }
 
-function registerUser({ name, username, email, password, role = 'user' }) {
+function registerUser({ name, username, email, password, role = 'user', department = 'IT' }) {
   return enqueueWrite(async () => {
     const existingEmail = await findUserByNameOrEmail(email);
     if (existingEmail) {
@@ -213,6 +236,8 @@ function registerUser({ name, username, email, password, role = 'user' }) {
       throw new Error('Username is already taken, please choose another');
     }
 
+    const cleanDepartment = (department || 'IT').trim();
+
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(FILE_PATH);
     const sheet = workbook.getWorksheet('Users');
@@ -224,6 +249,7 @@ function registerUser({ name, username, email, password, role = 'user' }) {
       username: cleanUsername,
       email: email.trim().toLowerCase(),
       role,
+      department: cleanDepartment,
     };
 
     sheet.addRow([
@@ -233,6 +259,7 @@ function registerUser({ name, username, email, password, role = 'user' }) {
       passwordHash,
       newUser.role,
       newUser.username,
+      newUser.department,
     ]);
 
     await syncUserProgressSheet(workbook);
@@ -581,12 +608,15 @@ async function getAllUsers() {
       const uName = getCellValueString(row.getCell(2)) || 'Team Member';
       const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
       const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
+      const uRole = getCellValueString(row.getCell(5)) || 'user';
+      const uDept = getCellValueString(row.getCell(7)) || (uRole === 'admin' ? 'Management' : 'IT');
       users.push({
         id: getCellValueString(row.getCell(1)),
         name: uName,
         username: uUsername,
         email: uEmail,
-        role: getCellValueString(row.getCell(5)) || 'user',
+        role: uRole,
+        department: uDept,
       });
     });
   }
@@ -606,12 +636,15 @@ async function getUserProgressModules() {
       const uName = getCellValueString(row.getCell(2)) || 'Team Member';
       const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
       const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
+      const uRole = getCellValueString(row.getCell(5)) || 'user';
+      const uDept = getCellValueString(row.getCell(7)) || (uRole === 'admin' ? 'Management' : 'IT');
       users.push({
         id: getCellValueString(row.getCell(1)),
         name: uName,
         username: uUsername,
         email: uEmail,
-        role: getCellValueString(row.getCell(5)) || 'user',
+        role: uRole,
+        department: uDept,
       });
     });
   }
@@ -632,6 +665,7 @@ async function getUserProgressModules() {
         username: fallbackName.toLowerCase().replace(/\s+/g, '_'),
         email: fallbackEmail,
         role: 'user',
+        department: 'IT',
       });
     }
   });
@@ -671,6 +705,7 @@ async function getUserProgressModules() {
       name: user.name,
       username: user.username,
       email: user.email,
+      department: user.department || 'IT',
       totalAssigned,
       completedCount: completedTasks.length,
       inProgressCount: inProgressTasks.length,
@@ -689,6 +724,80 @@ async function getUserProgressModules() {
   });
 }
 
+async function getAttendanceLogs() {
+  const users = await getAllUsers();
+  const tasks = await getAllTasks();
+  const members = users.filter((u) => u.role !== 'admin');
+
+  return members.map((u, idx) => {
+    const userTasks = tasks.filter((t) => {
+      const assigned = (t.assignedTo || '').toLowerCase();
+      const assignedEmail = (t.assignedToEmail || '').toLowerCase();
+      return (
+        assigned === u.name.toLowerCase() ||
+        assigned === u.email.toLowerCase() ||
+        assigned === u.username.toLowerCase() ||
+        assignedEmail === u.email.toLowerCase()
+      );
+    });
+
+    const total = userTasks.length;
+    const completed = userTasks.filter((t) => t.status === 'Completed').length;
+    const inProgress = userTasks.filter((t) => t.status === 'In Progress').length;
+    const onTime = userTasks.filter((t) => {
+      if (t.status !== 'Completed') return false;
+      if (!t.deadline) return true;
+      const comp = t.completedAt ? new Date(t.completedAt).getTime() : new Date(t.updatedAt).getTime();
+      return comp <= new Date(t.deadline).getTime();
+    }).length;
+
+    const rate = total > 0 ? Math.round((completed / total) * 100) : 100;
+    const onTimePct = completed > 0 ? Math.round((onTime / completed) * 100) : 100;
+
+    let performanceTier = 'Excellent';
+    let stars = '⭐⭐⭐⭐⭐';
+    if (rate >= 90 && onTimePct >= 85) {
+      performanceTier = 'Outstanding';
+      stars = '⭐⭐⭐⭐⭐';
+    } else if (rate >= 70) {
+      performanceTier = 'Good';
+      stars = '⭐⭐⭐⭐';
+    } else if (rate >= 50) {
+      performanceTier = 'Average';
+      stars = '⭐⭐⭐';
+    } else {
+      performanceTier = 'Needs Focus';
+      stars = '⭐⭐';
+    }
+
+    let workStatus = 'Active on Task';
+    if (inProgress > 0) workStatus = 'Working on Task';
+    else if (completed === total && total > 0) workStatus = 'Day Completed';
+    else if (total === 0) workStatus = 'Ready for Work';
+
+    const checkInTimes = ['08:45 AM', '09:00 AM', '09:15 AM', '08:50 AM', '09:05 AM'];
+    const checkIn = checkInTimes[idx % checkInTimes.length];
+
+    return {
+      userId: u.id,
+      name: u.name,
+      username: u.username,
+      email: u.email,
+      department: u.department || 'IT',
+      attendanceStatus: 'Present',
+      checkInTime: `${checkIn} Today`,
+      workStatus,
+      totalAssigned: total,
+      completedCount: completed,
+      inProgressCount: inProgress,
+      completionRate: rate,
+      onTimeRate: onTimePct,
+      performanceTier,
+      stars,
+      lastActive: userTasks[userTasks.length - 1]?.updatedAt || 'Recently active',
+    };
+  });
+}
 
 module.exports = {
   initExcel,
@@ -701,5 +810,6 @@ module.exports = {
   updateTask,
   getAllUsers,
   getUserProgressModules,
+  getAttendanceLogs,
   syncUserProgressSheet,
 };

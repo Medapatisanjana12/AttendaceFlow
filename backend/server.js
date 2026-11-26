@@ -16,6 +16,7 @@ const {
   updateTask,
   getAllUsers,
   getUserProgressModules,
+  getAttendanceLogs,
 } = require('./excelservice');
 
 const app = express();
@@ -163,11 +164,11 @@ app.post('/api/upload', (req, res) => {
 
 app.post('/api/register', async (req, res) => {
   try {
-    const { name, username, email, password } = req.body;
+    const { name, username, email, password, department } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     }
-    const user = await registerUser({ name, username, email, password, role: 'user' });
+    const user = await registerUser({ name, username, email, password, role: 'user', department: department || 'IT' });
     res.status(201).json(user);
   } catch (err) {
     res.status(400).json({ error: err.message || 'Registration failed' });
@@ -235,6 +236,37 @@ app.get('/api/admin/user-modules', async (req, res) => {
     res.json(modules);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch user progress modules' });
+  }
+});
+
+app.get('/api/admin/attendance', async (req, res) => {
+  try {
+    const logs = await getAttendanceLogs();
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch attendance logs' });
+  }
+});
+
+app.post('/api/admin/employees', async (req, res) => {
+  try {
+    const { name, username, email, password, department } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and password are required' });
+    }
+    const user = await registerUser({
+      name,
+      username,
+      email,
+      password,
+      role: 'user',
+      department: department || 'IT',
+    });
+
+    io.to('admins').emit('user_modules_updated');
+    res.status(201).json(user);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to add employee' });
   }
 });
 
