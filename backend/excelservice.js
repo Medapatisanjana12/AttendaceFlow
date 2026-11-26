@@ -97,6 +97,14 @@ async function initExcel() {
       { header: 'Description', key: 'Description', width: 45 },
     ];
 
+    // Sheet 4: Settings
+    const settingsSheet = workbook.addWorksheet('Settings');
+    settingsSheet.columns = [
+      { header: 'Key', key: 'Key', width: 30 },
+      { header: 'Value', key: 'Value', width: 60 },
+      { header: 'Updated_At', key: 'Updated_At', width: 25 },
+    ];
+
     await workbook.xlsx.writeFile(FILE_PATH);
     console.log('Created tasks.xlsx with Tasks, Users, and Attachments sheets');
   } else {
@@ -279,6 +287,33 @@ async function initExcel() {
           { header: 'Description', key: 'Description', width: 45 },
         ];
         needsSave = true;
+      }
+
+      // Check / initialize Settings sheet in existing tasks.xlsx
+      let settingsSheet = workbook.getWorksheet('Settings');
+      if (!settingsSheet) {
+        settingsSheet = workbook.addWorksheet('Settings');
+        settingsSheet.columns = [
+          { header: 'Key', key: 'Key', width: 30 },
+          { header: 'Value', key: 'Value', width: 60 },
+          { header: 'Updated_At', key: 'Updated_At', width: 25 },
+        ];
+        needsSave = true;
+      } else {
+        // Load stored settings into process.env if not explicitly set
+        settingsSheet.eachRow((row, rowNumber) => {
+          if (rowNumber > 1) {
+            const k = getCellValueString(row.getCell(1));
+            const v = getCellValueString(row.getCell(2));
+            if (k === 'GOOGLE_REFRESH_TOKEN' && v && !process.env.GOOGLE_REFRESH_TOKEN) {
+              process.env.GOOGLE_REFRESH_TOKEN = v.trim();
+              console.log('[excelservice] Restored GOOGLE_REFRESH_TOKEN from Excel Settings worksheet.');
+            }
+            if (k === 'GOOGLE_DRIVE_ROOT_FOLDER_ID' && v && !process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+              process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = v.trim();
+            }
+          }
+        });
       }
 
       if (needsSave) {
@@ -1182,6 +1217,59 @@ async function getAllAttachments() {
   return attachments;
 }
 
+async function getSetting(key) {
+  if (!key) return null;
+  await initExcel();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(FILE_PATH);
+  const sheet = workbook.getWorksheet('Settings');
+  if (!sheet) return null;
+
+  let result = null;
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber > 1 && getCellValueString(row.getCell(1)) === key) {
+      result = getCellValueString(row.getCell(2));
+    }
+  });
+  return result;
+}
+
+function saveSetting(key, value) {
+  return enqueueWrite(async () => {
+    if (!key) return null;
+    await initExcel();
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(FILE_PATH);
+    let sheet = workbook.getWorksheet('Settings');
+    if (!sheet) {
+      sheet = workbook.addWorksheet('Settings');
+      sheet.columns = [
+        { header: 'Key', key: 'Key', width: 30 },
+        { header: 'Value', key: 'Value', width: 60 },
+        { header: 'Updated_At', key: 'Updated_At', width: 25 },
+      ];
+    }
+
+    let foundRow = null;
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1 && getCellValueString(row.getCell(1)) === key) {
+        foundRow = row;
+      }
+    });
+
+    const nowIso = new Date().toISOString();
+    if (foundRow) {
+      foundRow.getCell(2).value = String(value);
+      foundRow.getCell(3).value = nowIso;
+    } else {
+      sheet.addRow([key, String(value), nowIso]);
+    }
+
+    await workbook.xlsx.writeFile(FILE_PATH);
+    return { key, value };
+  });
+}
+
 module.exports = {
   initExcel,
   findUserByEmail,
@@ -1200,4 +1288,6 @@ module.exports = {
   getAttachmentById,
   deleteAttachmentRecord,
   getAllAttachments,
+  getSetting,
+  saveSetting,
 };

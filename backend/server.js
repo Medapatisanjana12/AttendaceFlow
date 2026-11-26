@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
@@ -24,6 +25,8 @@ const {
   getAttachmentById,
   deleteAttachmentRecord,
   getAllAttachments,
+  getSetting,
+  saveSetting,
 } = require('./excelservice');
 
 const app = express();
@@ -682,16 +685,42 @@ app.delete('/api/attachments/:attachmentId', async (req, res) => {
   }
 });
 
-// --- GOOGLE OAUTH2 HELPER ROUTES (For generating refresh token) ---
+// --- GOOGLE OAUTH2 & DRIVE STORAGE ROUTES ---
 
-app.get('/api/drive/auth-url', (req, res) => {
+const oauthStates = new Map(); // state -> timestamp
+
+function createOAuthState() {
+  const state = crypto.randomBytes(24).toString('hex');
+  oauthStates.set(state, Date.now());
+  const now = Date.now();
+  for (const [st, time] of oauthStates.entries()) {
+    if (now - time > 15 * 60 * 1000) oauthStates.delete(st);
+  }
+  return state;
+}
+
+function validateOAuthState(state) {
+  if (!state || !oauthStates.has(state)) return false;
+  const time = oauthStates.get(state);
+  oauthStates.delete(state);
+  return Date.now() - time <= 15 * 60 * 1000;
+}
+
+/**
+ * GET /api/google-drive/auth
+ * Generates OAuth authorization URL with offline access, drive.file scope, and CSRF state validation.
+ */
+app.get('/api/google-drive/auth', (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     return res.status(400).json({
-      error: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured in environment variables to generate auth URL.',
+      error: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured in environment variables before authenticating with Google.',
     });
   }
 
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}/oauth2callback`;
+  const redirectUri =
+    process.env.GOOGLE_REDIRECT_URI ||
+    `${req.protocol}://${req.get('host')}/api/google-drive/callback`;
+
   const { google } = require('googleapis');
   const oauth2 = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -699,23 +728,61 @@ app.get('/api/drive/auth-url', (req, res) => {
     redirectUri
   );
 
-  const url = oauth2.generateAuthUrl({
+  const state = createOAuthState();
+
+  const authUrl = oauth2.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: ['https://www.googleapis.com/auth/drive.file'],
+    state,
   });
 
-  res.json({ authUrl: url, redirectUri });
+  if (req.query.json === 'true' || req.headers.accept?.includes('application/json')) {
+    return res.json({ authUrl, redirectUri, state });
+  }
+
+  res.redirect(authUrl);
 });
 
-app.get('/oauth2callback', async (req, res) => {
-  const { code } = req.query;
+// Backward-compatible alias for auth URL
+app.get('/api/drive/auth-url', (req, res) => {
+  res.redirect('/api/google-drive/auth?json=true');
+});
+
+/**
+ * GET /api/google-drive/callback
+ * Handles OAuth callback, validates state token, exchanges code for tokens, and persists refresh token.
+ */
+app.get('/api/google-drive/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    return res.status(400).send(`
+      <div style="font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 24px; border: 1px solid #FECACA; border-radius: 12px; background: #FEF2F2;">
+        <h2 style="color: #991B1B;">Google Authorization Denied</h2>
+        <p>Google returned an authorization error: <strong>${error}</strong></p>
+        <p><a href="/api/google-drive/auth">Try again</a></p>
+      </div>
+    `);
+  }
+
+  if (!state || !validateOAuthState(state)) {
+    return res.status(400).json({
+      error: 'Invalid or expired OAuth state parameter. Potential CSRF detected. Please start authorization from /api/google-drive/auth.',
+    });
+  }
+
   if (!code) {
-    return res.status(400).send('<h3>Error: Missing authorization code parameter.</h3>');
+    return res.status(400).json({
+      error: 'Missing authorization code parameter from Google.',
+    });
   }
 
   try {
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}/oauth2callback`;
+    const redirectUri =
+      process.env.GOOGLE_REDIRECT_URI ||
+      `${req.protocol}://${req.get('host')}/api/google-drive/callback`;
+
     const { google } = require('googleapis');
     const oauth2 = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
@@ -725,17 +792,101 @@ app.get('/oauth2callback', async (req, res) => {
 
     const { tokens } = await oauth2.getToken(code);
 
+    if (tokens.refresh_token) {
+      // 1. Update in-memory environment
+      process.env.GOOGLE_REFRESH_TOKEN = tokens.refresh_token;
+
+      // 2. Persist to Excel tasks.xlsx Settings worksheet
+      await saveSetting('GOOGLE_REFRESH_TOKEN', tokens.refresh_token);
+
+      // 3. Persist to local .env if present
+      try {
+        const envPath = path.join(__dirname, '.env');
+        if (fs.existsSync(envPath)) {
+          let envContent = fs.readFileSync(envPath, 'utf8');
+          if (envContent.includes('GOOGLE_REFRESH_TOKEN=')) {
+            envContent = envContent.replace(
+              /GOOGLE_REFRESH_TOKEN=.*/g,
+              `GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}`
+            );
+          } else {
+            envContent += `\nGOOGLE_REFRESH_TOKEN=${tokens.refresh_token}\n`;
+          }
+          fs.writeFileSync(envPath, envContent, 'utf8');
+        }
+      } catch (fileErr) {
+        console.warn('[server] Could not update local .env file:', fileErr.message);
+      }
+
+      // 4. Re-initialize Google Drive service with the new refresh token
+      googleDriveService.initClient(tokens.refresh_token);
+
+      // 5. Automatically verify/create Workly folder hierarchy
+      googleDriveService.ensureWorklyHierarchy().catch((hErr) => {
+        console.warn('[server] Failed to auto-initialize Workly folder hierarchy:', hErr.message);
+      });
+    }
+
+    if (req.headers.accept?.includes('application/json')) {
+      return res.json({
+        success: true,
+        message: 'Google Drive connected successfully. Refresh token stored securely.',
+      });
+    }
+
     res.send(`
-      <div style="font-family: sans-serif; max-width: 650px; margin: 40px auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 12px; background: #FAF8F6;">
-        <h2 style="color: #242052;">Workly Google Drive Authorization Successful</h2>
-        <p style="color: #166534; font-weight: bold;">Google Drive OAuth 2.0 access authorized successfully!</p>
-        <p>Copy your <strong>Refresh Token</strong> and set it in your <code>.env</code> file (or Render Dashboard):</p>
-        <pre style="background: #242052; color: #F87524; padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px;">GOOGLE_REFRESH_TOKEN=${tokens.refresh_token || 'Token not returned (Ensure prompt=consent)'}</pre>
-        <p style="font-size: 12px; color: #64748B;">Once saved in your backend environment variables, restart the server to activate Google Drive API v3 storage.</p>
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 650px; margin: 40px auto; padding: 28px; border: 1px solid #E2E8F0; border-radius: 14px; background: #FAF8F6; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+          <h2 style="color: #242052; margin: 0; font-size: 22px;">Workly &mdash; Google Drive Connected</h2>
+        </div>
+        <p style="color: #15803D; font-size: 15px; font-weight: 600; margin: 8px 0 16px;">
+          OAuth 2.0 authorization completed successfully!
+        </p>
+        <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+          The offline refresh token has been securely stored on the Workly backend. Google Drive API v3 storage and the Workly folder structure are now fully operational.
+        </p>
+        <div style="margin-top: 20px; padding: 14px; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px;">
+          <p style="margin: 0; font-size: 13px; color: #475569;">
+            Verify connection status:
+            <br />
+            <a href="/api/google-drive/test" style="color: #F87524; font-weight: 600; text-decoration: none;">/api/google-drive/test &rarr;</a>
+          </p>
+        </div>
       </div>
     `);
   } catch (err) {
-    res.status(500).send(`<h3>Failed to exchange authorization code:</h3><p>${err.message}</p>`);
+    console.error('Google OAuth callback error:', err);
+    res.status(500).send(`
+      <div style="font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 24px; border: 1px solid #FECACA; border-radius: 12px; background: #FEF2F2;">
+        <h2 style="color: #991B1B;">Failed to Exchange Authorization Code</h2>
+        <p>${err.message}</p>
+        <p><a href="/api/google-drive/auth">Click here to retry</a></p>
+      </div>
+    `);
+  }
+});
+
+// Backward-compatible alias for /oauth2callback
+app.get('/oauth2callback', (req, res) => {
+  const query = new URLSearchParams(req.query).toString();
+  res.redirect(`/api/google-drive/callback?${query}`);
+});
+
+/**
+ * GET /api/google-drive/test
+ * Protected test endpoint verifying credentials, refresh token, API connectivity, and Workly folders.
+ */
+app.get('/api/google-drive/test', async (req, res) => {
+  try {
+    const result = await googleDriveService.testConnection();
+    const statusCode = result.connected ? 200 : 400;
+    res.status(statusCode).json(result);
+  } catch (err) {
+    res.status(500).json({
+      connected: false,
+      status: 'error',
+      message: 'Unexpected error during Google Drive connectivity test: ' + err.message,
+    });
   }
 });
 
