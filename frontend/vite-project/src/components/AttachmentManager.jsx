@@ -15,12 +15,10 @@ function formatDate(dateString) {
   if (!dateString) return '—';
   try {
     const d = new Date(dateString);
-    return d.toLocaleString(undefined, {
+    return d.toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
     });
   } catch (e) {
     return dateString;
@@ -53,6 +51,9 @@ export default function AttachmentManager({
   canUpload = true,
   title = 'Task Attachments',
   readOnly = false,
+  filterDirection = null, // null (show tabs) | 'Admin_to_User' | 'User_to_Admin'
+  hideTabs = false,
+  emptyMessage = null,
   onAttachmentCountChange = null,
 }) {
   const [attachments, setAttachments] = useState([]);
@@ -184,7 +185,6 @@ export default function AttachmentManager({
       setDescription('');
       if (fileInputRef.current) fileInputRef.current.value = '';
 
-      // Add to list
       setAttachments((prev) => [res.data, ...prev.filter((a) => a.attachmentId !== res.data.attachmentId)]);
       if (onAttachmentCountChange) onAttachmentCountChange(attachments.length + 1);
 
@@ -206,7 +206,7 @@ export default function AttachmentManager({
   };
 
   const handleDelete = async (attachment) => {
-    const confirmDelete = window.confirm(`Are you sure you want to delete "${attachment.originalFileName || attachment.fileName}"? This will permanently remove the file from Google Drive and records.`);
+    const confirmDelete = window.confirm(`Are you sure you want to delete "${attachment.originalFileName || attachment.fileName}"? This will permanently remove the file from Google Drive.`);
     if (!confirmDelete) return;
 
     setErrorMsg('');
@@ -228,8 +228,11 @@ export default function AttachmentManager({
     }
   };
 
-  // Filter attachments based on active filter tab
+  // Filter attachments based on filterDirection or active tab
   const filteredAttachments = attachments.filter((att) => {
+    if (filterDirection) {
+      return att.uploadDirection === filterDirection;
+    }
     if (filterTab === 'admin') return att.uploadDirection === 'Admin_to_User';
     if (filterTab === 'user') return att.uploadDirection === 'User_to_Admin';
     return true;
@@ -237,44 +240,49 @@ export default function AttachmentManager({
 
   const adminDocsCount = attachments.filter((a) => a.uploadDirection === 'Admin_to_User').length;
   const userDocsCount = attachments.filter((a) => a.uploadDirection === 'User_to_Admin').length;
+  const shouldShowTabs = !hideTabs && !filterDirection;
 
   return (
     <div className="attachment-manager-card">
       <div className="attachment-manager-header">
         <div className="att-title-wrap">
           <h4 className="att-title">{title}</h4>
-          <span className="att-count-badge">{attachments.length} Total</span>
+          <span className="att-count-badge">
+            {filteredAttachments.length} {filteredAttachments.length === 1 ? 'File' : 'Files'}
+          </span>
         </div>
 
-        <div className="att-filter-tabs">
-          <button
-            type="button"
-            className={`att-tab ${filterTab === 'all' ? 'active' : ''}`}
-            onClick={() => setFilterTab('all')}
-          >
-            All Files ({attachments.length})
-          </button>
-          <button
-            type="button"
-            className={`att-tab ${filterTab === 'admin' ? 'active' : ''}`}
-            onClick={() => setFilterTab('admin')}
-          >
-            Admin Briefs ({adminDocsCount})
-          </button>
-          <button
-            type="button"
-            className={`att-tab ${filterTab === 'user' ? 'active' : ''}`}
-            onClick={() => setFilterTab('user')}
-          >
-            Deliverables ({userDocsCount})
-          </button>
-        </div>
+        {shouldShowTabs && (
+          <div className="att-filter-tabs">
+            <button
+              type="button"
+              className={`att-tab ${filterTab === 'all' ? 'active' : ''}`}
+              onClick={() => setFilterTab('all')}
+            >
+              All Files ({attachments.length})
+            </button>
+            <button
+              type="button"
+              className={`att-tab ${filterTab === 'admin' ? 'active' : ''}`}
+              onClick={() => setFilterTab('admin')}
+            >
+              Admin Briefs ({adminDocsCount})
+            </button>
+            <button
+              type="button"
+              className={`att-tab ${filterTab === 'user' ? 'active' : ''}`}
+              onClick={() => setFilterTab('user')}
+            >
+              Deliverables ({userDocsCount})
+            </button>
+          </div>
+        )}
       </div>
 
       {errorMsg && <div className="att-alert error">{errorMsg}</div>}
       {successMsg && <div className="att-alert success">{successMsg}</div>}
 
-      {/* UPLOAD SECTION (If enabled and permitted) */}
+      {/* UPLOAD SECTION (Only when write allowed and not readOnly) */}
       {!readOnly && canUpload && (
         <div className="att-upload-section">
           <div
@@ -307,7 +315,7 @@ export default function AttachmentManager({
 
             {!selectedFile ? (
               <div className="dropzone-prompt">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#F87524" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#F87524" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <polyline points="17 8 12 3 7 8" />
                   <line x1="12" y1="3" x2="12" y2="15" />
@@ -315,7 +323,7 @@ export default function AttachmentManager({
                 <div className="dropzone-text">
                   <strong>Click or Drag & Drop file here</strong>
                   <small>
-                    Upload to Google Drive ({uploadDirection === 'Admin_to_User' ? 'Admin Brief' : 'Progress Deliverable'}) • Max 10 MB
+                    Upload to Google Drive ({uploadDirection === 'Admin_to_User' ? 'Admin Brief' : 'Deliverable'}) • Max 10 MB
                   </small>
                 </div>
               </div>
@@ -369,77 +377,109 @@ export default function AttachmentManager({
         </div>
       )}
 
-      {/* ATTACHMENT LIST */}
+      {/* COMPACT HORIZONTAL ROWS ATTACHMENT LIST */}
       <div className="att-list-container">
         {isLoading ? (
           <div className="att-loading-state">Loading attachments...</div>
         ) : filteredAttachments.length === 0 ? (
           <div className="att-empty-state">
-            <p>No attachments available in this view.</p>
+            <p>{emptyMessage || 'No attachments available in this view.'}</p>
           </div>
         ) : (
-          <div className="att-items-grid">
+          <div className="att-horizontal-list">
             {filteredAttachments.map((att) => {
               const badge = getFileTypeBadge(att.fileType, att.originalFileName);
               const isAdminFile = att.uploadDirection === 'Admin_to_User';
               const canDeleteThis =
                 currentUser?.role === 'admin' ||
-                (!isAdminFile && (att.uploadedBy === currentUser?.email || att.uploadedBy === currentUser?.name || att.uploadedBy === currentUser?.username));
+                (!isAdminFile &&
+                  (att.uploadedBy === currentUser?.email ||
+                    att.uploadedBy === currentUser?.name ||
+                    att.uploadedBy === currentUser?.username));
 
               return (
-                <div key={att.attachmentId} className="att-item-card">
-                  <div className="att-item-top">
+                <div key={att.attachmentId} className="att-row-item">
+                  {/* Left Side: File type badge, filename, size, date */}
+                  <div className="att-row-left">
                     <span
-                      className="att-type-badge"
+                      className="att-row-type-badge"
                       style={{ background: badge.bg, color: badge.color }}
                     >
                       {badge.label}
                     </span>
-                    <span className={`att-direction-badge ${isAdminFile ? 'admin-dir' : 'user-dir'}`}>
-                      {isAdminFile ? 'Admin Brief' : 'User Deliverable'}
-                    </span>
+
+                    <div className="att-row-info">
+                      <div className="att-row-name-line">
+                        <span
+                          className="att-row-name"
+                          title={att.originalFileName || att.fileName}
+                        >
+                          {att.originalFileName || att.fileName}
+                        </span>
+                        {att.description && (
+                          <span className="att-row-desc" title={att.description}>
+                            — "{att.description}"
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="att-row-meta">
+                        <span>{formatFileSize(att.fileSize)}</span>
+                        <span className="att-meta-sep">•</span>
+                        <span>{formatDate(att.uploadedDate)}</span>
+                        {att.uploadedBy && (
+                          <>
+                            <span className="att-meta-sep">•</span>
+                            <span>From {att.uploadedBy}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  <h5 className="att-filename" title={att.originalFileName || att.fileName}>
-                    {att.originalFileName || att.fileName}
-                  </h5>
-
-                  {att.description && (
-                    <p className="att-item-desc" title={att.description}>
-                      "{att.description}"
-                    </p>
-                  )}
-
-                  <div className="att-item-meta">
-                    <span>{formatFileSize(att.fileSize)}</span>
-                    <span>•</span>
-                    <span>{formatDate(att.uploadedDate)}</span>
-                  </div>
-
-                  <div className="att-uploader-info">
-                    <small>Uploaded by: <strong>{att.uploadedBy}</strong> ({att.uploadedRole})</small>
-                  </div>
-
-                  <div className="att-item-actions">
-                    <button
-                      type="button"
-                      className="btn-att-download"
-                      onClick={() => handleDownload(att)}
-                      title="Download securely from Google Drive"
+                  {/* Right Side: Category badge, download & delete actions */}
+                  <div className="att-row-right">
+                    <span
+                      className={`att-category-pill ${isAdminFile ? 'cat-admin' : 'cat-user'}`}
                     >
-                      Download ↗
-                    </button>
+                      {isAdminFile ? 'Admin Brief' : 'Deliverable'}
+                    </span>
 
-                    {canDeleteThis && !readOnly && (
+                    <div className="att-row-actions">
                       <button
                         type="button"
-                        className="btn-att-delete"
-                        onClick={() => handleDelete(att)}
-                        title="Delete file from Google Drive and metadata"
+                        className="btn-att-row-download"
+                        onClick={() => handleDownload(att)}
+                        title="Download file from Google Drive"
                       >
-                        Delete
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        <span>Download</span>
                       </button>
-                    )}
+
+                      {canDeleteThis && !readOnly && (
+                        <button
+                          type="button"
+                          className="btn-att-row-delete"
+                          onClick={() => handleDelete(att)}
+                          title="Delete deliverable"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );

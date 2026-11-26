@@ -300,38 +300,75 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
   };
 
   // Save note & proof of work
-  const handleFileUpload = (taskId, file) => {
+  const handleFileUpload = async (taskId, file) => {
     if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      setTaskFeedback((prev) => ({
+        ...prev,
+        [taskId]: { type: 'error', msg: 'File exceeds the 10 MB maximum limit.' },
+      }));
+      return;
+    }
+
     setUploadingTask(taskId);
+    setTaskFeedback((prev) => ({ ...prev, [taskId]: null }));
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const fileData = reader.result;
-        const res = await axios.post(`${API_BASE_URL}/upload`, {
-          fileName: file.name,
-          fileData,
-        });
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('taskId', taskId);
+      formData.append('uploadDirection', 'User_to_Admin');
+      formData.append(
+        'uploadedBy',
+        currentUser?.name || currentUser?.username || userEmail || 'Team Member'
+      );
+      formData.append('uploadedRole', 'user');
+      formData.append('description', 'Deliverable document');
 
-        setProofs((prev) => ({
-          ...prev,
-          [taskId]: res.data.url,
-        }));
-        setTaskFeedback((prev) => ({
-          ...prev,
-          [taskId]: { type: 'success', msg: `Document uploaded: ${file.name}` },
-        }));
-      } catch (err) {
-        console.error('File upload error:', err);
-        setTaskFeedback((prev) => ({
-          ...prev,
-          [taskId]: { type: 'error', msg: 'Failed to upload document.' },
-        }));
-      } finally {
-        setUploadingTask(null);
-      }
-    };
-    reader.readAsDataURL(file);
+      const res = await axios.post(`${API_BASE_URL}/attachments/upload`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const downloadUrl = `${API_BASE_URL}/attachments/download/${res.data.attachmentId}?role=user&email=${encodeURIComponent(userEmail || '')}`;
+
+      setProofs((prev) => ({
+        ...prev,
+        [taskId]: downloadUrl,
+      }));
+
+      // Update task proofAttachment in local state
+      setTasks((prev) =>
+        prev.map((t) =>
+          String(getTaskId(t)) === String(taskId)
+            ? { ...t, proofAttachment: downloadUrl }
+            : t
+        )
+      );
+
+      setTaskFeedback((prev) => ({
+        ...prev,
+        [taskId]: {
+          type: 'success',
+          msg: `Uploaded to Google Drive successfully: ${file.name}`,
+        },
+      }));
+
+      setTimeout(() => {
+        setTaskFeedback((prev) => ({ ...prev, [taskId]: null }));
+      }, 4000);
+    } catch (err) {
+      console.error('File upload error:', err);
+      setTaskFeedback((prev) => ({
+        ...prev,
+        [taskId]: {
+          type: 'error',
+          msg: err.response?.data?.error || 'Failed to upload document to Google Drive.',
+        },
+      }));
+    } finally {
+      setUploadingTask(null);
+    }
   };
 
   const handleSaveWorkUpdate = async (taskId, currentNote, currentProof) => {
@@ -732,25 +769,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                           'No additional instructions provided.'}
                       </p>
 
-                      {/* SHARED DOCUMENT FROM ADMIN */}
-                      {task.adminAttachment && (
-                        <div className="task-shared-admin-doc">
-                          <span className="shared-doc-label">Project Brief / Assigned Document:</span>
-                          <a
-                            href={
-                              task.adminAttachment.startsWith('/')
-                                ? `${BACKEND_URL}${task.adminAttachment}`
-                                : task.adminAttachment
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn-view-admin-doc"
-                          >
-                            View Assigned Document ↗
-                          </a>
-                        </div>
-                      )}
-
                       {/* DEADLINE & LIVE COUNTDOWN TIMER BANNER */}
                       <div className={`user-task-timer-banner ${timerInfo.badgeClass}`}>
                         <div className="timer-banner-header">
@@ -768,8 +786,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                         </div>
                       </div>
 
-                      <div className="task-divider" />
-
                       {/* ADMIN FEEDBACK BANNER */}
                       {task.adminFeedback ? (
                         <div className="task-admin-feedback-card active">
@@ -781,13 +797,15 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                       ) : (
                         <div className="task-admin-feedback-card awaiting">
                           <span className="feedback-card-awaiting-text">
-                            No feedback from admin yet. Submit deliverables and notes below.
+                            No feedback from admin yet. Review files shared below and submit your deliverables.
                           </span>
                         </div>
                       )}
 
-                      {/* GOOGLE DRIVE ATTACHMENTS & DELIVERABLES */}
-                      <div className="user-task-attachment-section">
+                      {/* ========================================================
+                          SECTION A: FILES SHARED BY ADMIN (Incoming Deliverables)
+                          ======================================================== */}
+                      <section className="task-section-box section-admin-files">
                         <AttachmentManager
                           taskId={taskId}
                           currentUser={{
@@ -795,130 +813,168 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                             email: currentUser?.email || userEmail || '',
                             name: currentUser?.name || currentUser?.username || 'Team Member',
                           }}
-                          uploadDirection="User_to_Admin"
-                          title="Deliverables & Files (Google Drive)"
-                          canUpload={true}
-                        />
-                      </div>
-
-                      {/* WORK UPDATE & PROOF OF WORK SECTION */}
-                      <div className="note-section work-update-section">
-                        <label htmlFor={`note-${taskId}`}>
-                          Your Progress Notes
-                        </label>
-
-                        <textarea
-                          id={`note-${taskId}`}
-                          value={
-                            notes[taskId] !== undefined
-                              ? notes[taskId]
-                              : task.userNote || ''
-                          }
-                          onChange={(e) =>
-                            setNotes((prev) => ({
-                              ...prev,
-                              [taskId]: e.target.value
-                            }))
-                          }
-                          placeholder="Describe what you completed, milestones achieved..."
+                          filterDirection="Admin_to_User"
+                          title="Files Shared by Admin"
+                          readOnly={true}
+                          hideTabs={true}
+                          emptyMessage="No reference files or documents shared by admin for this deliverable."
                         />
 
-                        {/* Proof of Work Container */}
-                        <div className="proof-section">
-                          <div className="proof-header">
-                            <label>Proof of Work (Document or Link)</label>
-                            <span className="proof-subtext">Admin will verify this proof</span>
+                        {/* Legacy assigned document link fallback */}
+                        {task.adminAttachment && (
+                          <div className="task-shared-admin-doc">
+                            <span className="shared-doc-label">Project Brief Document:</span>
+                            <a
+                              href={
+                                task.adminAttachment.startsWith('/')
+                                  ? `${BACKEND_URL}${task.adminAttachment}`
+                                  : task.adminAttachment
+                              }
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn-view-admin-doc"
+                            >
+                              View Assigned Document ↗
+                            </a>
                           </div>
+                        )}
+                      </section>
 
-                          {/* Existing / Staged Proof Preview */}
-                          {(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment) && (
-                            <div className="proof-chip">
-                              <a
-                                href={
-                                  (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).startsWith('/')
-                                    ? `${BACKEND_URL}${(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment)}`
-                                    : (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment)
-                                }
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="proof-chip-link"
-                              >
-                                {(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).startsWith('/uploads/')
-                                  ? (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).replace('/uploads/', '')
-                                  : (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment)}
-                                {' ↗'}
-                              </a>
-                              <button
-                                type="button"
-                                className="proof-chip-remove"
-                                title="Remove attachment"
-                                onClick={() =>
-                                  setProofs((prev) => ({
-                                    ...prev,
-                                    [taskId]: ''
-                                  }))
-                                }
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          )}
-
-                          <div className="proof-inputs-row">
-                            {/* File Upload Button */}
-                            <div className="file-upload-wrapper">
-                              <input
-                                type="file"
-                                id={`file-input-${taskId}`}
-                                className="file-input-hidden"
-                                onChange={(e) => {
-                                  if (e.target.files?.[0]) {
-                                    handleFileUpload(taskId, e.target.files[0]);
-                                  }
-                                }}
-                              />
-                              <label
-                                htmlFor={`file-input-${taskId}`}
-                                className={`btn-file-upload ${uploadingTask === taskId ? 'loading' : ''}`}
-                              >
-                                <span className="upload-btn-text">
-                                  {uploadingTask === taskId ? 'Uploading...' : 'Upload Document'}
-                                </span>
-                              </label>
-                            </div>
-
-                            <span className="proof-divider-or">OR</span>
-
-                            {/* Paste Link Box */}
-                            <div className="proof-url-wrapper">
-                              <input
-                                type="url"
-                                className="proof-url-input"
-                                placeholder="Paste link here (Google Drive, GitHub, Figma...)"
-                                value={
-                                  proofs[taskId] !== undefined
-                                    ? proofs[taskId]
-                                    : task.proofAttachment || ''
-                                }
-                                onChange={(e) =>
-                                  setProofs((prev) => ({
-                                    ...prev,
-                                    [taskId]: e.target.value
-                                  }))
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          {/* Task Feedback Message */}
-                          {taskFeedback[taskId] && (
-                            <div className={`task-feedback-banner ${taskFeedback[taskId].type}`}>
-                              {taskFeedback[taskId].msg}
-                            </div>
-                          )}
+                      {/* ========================================================
+                          SECTION B: SUBMIT YOUR WORK (Outgoing Deliverables)
+                          ======================================================== */}
+                      <section className="task-section-box section-submit-work">
+                        <div className="submit-work-header">
+                          <h4 className="submit-work-title">Submit Your Work</h4>
+                          <span className="submit-work-subtitle">
+                            Upload your completed deliverables to Google Drive, record progress notes, and share project links.
+                          </span>
                         </div>
 
+                        {/* 1. Progress Notes */}
+                        <div className="submit-field-group">
+                          <label htmlFor={`note-${taskId}`}>
+                            Progress Notes & Milestone Summary
+                          </label>
+                          <textarea
+                            id={`note-${taskId}`}
+                            value={
+                              notes[taskId] !== undefined
+                                ? notes[taskId]
+                                : task.userNote || ''
+                            }
+                            onChange={(e) =>
+                              setNotes((prev) => ({
+                                ...prev,
+                                [taskId]: e.target.value,
+                              }))
+                            }
+                            placeholder="Describe what you completed, milestones achieved, or deliverable summary..."
+                            rows={3}
+                            className="submit-notes-textarea"
+                          />
+                        </div>
+
+                        {/* 2. Document Upload Button */}
+                        <div className="submit-field-group">
+                          <label>Upload Document Deliverable (Google Drive)</label>
+                          <div className="deliverable-upload-controls">
+                            <input
+                              type="file"
+                              id={`file-input-${taskId}`}
+                              className="file-input-hidden"
+                              accept=".pdf,.jpeg,.jpg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                              onChange={(e) => {
+                                if (e.target.files?.[0]) {
+                                  handleFileUpload(taskId, e.target.files[0]);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                            <label
+                              htmlFor={`file-input-${taskId}`}
+                              className={`btn-deliverable-upload ${uploadingTask === taskId ? 'loading' : ''}`}
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                              </svg>
+                              <span>
+                                {uploadingTask === taskId
+                                  ? 'Uploading to Google Drive...'
+                                  : 'Upload Document'}
+                              </span>
+                            </label>
+                            <span className="upload-help-text">
+                              Max 10 MB (PDF, DOCX, XLSX, PNG, JPG)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 3. Submitted Deliverables Horizontal List */}
+                        <div className="submitted-deliverables-wrap">
+                          <AttachmentManager
+                            taskId={taskId}
+                            currentUser={{
+                              role: 'user',
+                              email: currentUser?.email || userEmail || '',
+                              name: currentUser?.name || currentUser?.username || 'Team Member',
+                            }}
+                            filterDirection="User_to_Admin"
+                            uploadDirection="User_to_Admin"
+                            title="Your Uploaded Deliverables"
+                            canUpload={false}
+                            hideTabs={true}
+                            emptyMessage="No deliverables submitted yet. Click 'Upload Document' above to submit your completed files."
+                          />
+                        </div>
+
+                        {/* 4. External Link (GitHub, Figma, Google Docs) */}
+                        <div className="submit-field-group">
+                          <label htmlFor={`link-${taskId}`}>
+                            External Work Link (Optional &mdash; GitHub, Figma, Docs)
+                          </label>
+                          <div className="proof-url-wrapper">
+                            <input
+                              id={`link-${taskId}`}
+                              type="url"
+                              className="proof-url-input"
+                              placeholder="Paste external project link (https://...)"
+                              value={
+                                proofs[taskId] !== undefined
+                                  ? proofs[taskId]
+                                  : task.proofAttachment || ''
+                              }
+                              onChange={(e) =>
+                                setProofs((prev) => ({
+                                  ...prev,
+                                  [taskId]: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+
+                        {/* Feedback message banner */}
+                        {taskFeedback[taskId] && (
+                          <div className={`task-feedback-banner ${taskFeedback[taskId].type}`}>
+                            {taskFeedback[taskId].msg}
+                          </div>
+                        )}
+
+                        {/* 5. Save Progress & Proof Button */}
                         <button
+                          type="button"
                           className="btn-primary save-btn"
                           disabled={savingTask === taskId || uploadingTask === taskId}
                           onClick={() =>
@@ -930,10 +986,10 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                           }
                         >
                           {savingTask === taskId
-                            ? 'Saving Work & Proof...'
+                            ? 'Saving Work & Notes...'
                             : 'Save Progress & Proof'}
                         </button>
-                      </div>
+                      </section>
 
                       <div className="status-section">
                         <label>Update Status</label>
