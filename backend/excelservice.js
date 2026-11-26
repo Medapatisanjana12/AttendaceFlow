@@ -54,6 +54,7 @@ async function initExcel() {
       { header: 'deadline', key: 'deadline', width: 30 },
       { header: 'completedAt', key: 'completedAt', width: 30 },
       { header: 'createdAt', key: 'createdAt', width: 30 },
+      { header: 'adminAttachment', key: 'adminAttachment', width: 45 },
     ];
 
     // Sheet 2: Users
@@ -121,6 +122,11 @@ async function initExcel() {
         if (taskSheet.getCell(1, 13).value !== 'createdAt') {
           taskSheet.getCell(1, 13).value = 'createdAt';
           taskSheet.getColumn(13).width = 30;
+          needsSave = true;
+        }
+        if (taskSheet.getCell(1, 14).value !== 'adminAttachment') {
+          taskSheet.getCell(1, 14).value = 'adminAttachment';
+          taskSheet.getColumn(14).width = 45;
           needsSave = true;
         }
       }
@@ -478,6 +484,7 @@ async function getAllTasks() {
       deadline: getCellValueString(row.getCell(11)),
       completedAt: getCellValueString(row.getCell(12)),
       createdAt: getCellValueString(row.getCell(13)),
+      adminAttachment: getCellValueString(row.getCell(14)),
     });
   });
 
@@ -511,6 +518,7 @@ function addTask(taskData) {
       deadline: taskData.deadline || '',
       completedAt: '',
       createdAt: nowIso,
+      adminAttachment: taskData.adminAttachment || taskData.attachment || '',
     };
 
     sheet.addRow([
@@ -527,6 +535,7 @@ function addTask(taskData) {
       newTask.deadline,
       newTask.completedAt,
       newTask.createdAt,
+      newTask.adminAttachment,
     ]);
 
     await syncUserProgressSheet(workbook);
@@ -589,6 +598,7 @@ function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, 
           deadline: getCellValueString(row.getCell(11)),
           completedAt: getCellValueString(row.getCell(12)),
           createdAt: createdAtVal,
+          adminAttachment: getCellValueString(row.getCell(14)),
         };
       }
     });

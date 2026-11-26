@@ -318,7 +318,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
         }));
         setTaskFeedback((prev) => ({
           ...prev,
-          [taskId]: { type: 'success', msg: `✓ Document uploaded: ${file.name}` },
+          [taskId]: { type: 'success', msg: `Document uploaded: ${file.name}` },
         }));
       } catch (err) {
         console.error('File upload error:', err);
@@ -355,7 +355,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
 
       setTaskFeedback((prev) => ({
         ...prev,
-        [taskId]: { type: 'success', msg: '✓ Work update & proof of work saved!' },
+        [taskId]: { type: 'success', msg: 'Work update and proof of work saved.' },
       }));
 
       setTimeout(() => {
@@ -410,7 +410,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
       {/* NAVIGATION */}
       <header className="header user-header">
         <div className="brand">
-          <div className="brand-icon">✓</div>
+          <div className="brand-icon">W</div>
           <div>
             <span className="brand-name">Workly</span>
             <small className="brand-subtitle">Member Workspace</small>
@@ -491,7 +491,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
 
               <div className="stat-card animated-card">
                 <div className="stat-top">
-                  <span className="stat-icon navy-icon">▣</span>
                   <span className="stat-trend">All tasks</span>
                 </div>
                 <span>Total Assigned</span>
@@ -500,7 +499,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
 
               <div className="stat-card animated-card">
                 <div className="stat-top">
-                  <span className="stat-icon orange-icon">◷</span>
                   <span className="stat-trend">To do</span>
                 </div>
                 <span>Pending</span>
@@ -509,7 +507,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
 
               <div className="stat-card animated-card">
                 <div className="stat-top">
-                  <span className="stat-icon blue-icon">↻</span>
                   <span className="stat-trend">Ongoing</span>
                 </div>
                 <span>In Progress</span>
@@ -518,7 +515,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
 
               <div className="stat-card animated-card">
                 <div className="stat-top">
-                  <span className="stat-icon green-icon">✓</span>
                   <span className="stat-trend">Achieved</span>
                 </div>
                 <span>Completed</span>
@@ -633,8 +629,8 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                                 title={task.proofAttachment}
                               >
                                 {task.proofAttachment.startsWith('/uploads/')
-                                  ? '📄 View Document ↗'
-                                  : '🔗 Open Link ↗'}
+                                  ? 'View Document ↗'
+                                  : 'Open Link ↗'}
                               </a>
                             ) : (
                               <span className="muted">— No proof —</span>
@@ -644,7 +640,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                           <td>
                             {task.adminFeedback ? (
                               <div className="user-admin-feedback-pill">
-                                <span className="feedback-pill-icon">💬</span>
                                 <span className="feedback-pill-text" title={task.adminFeedback}>
                                   "{task.adminFeedback}"
                                 </span>
@@ -688,8 +683,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                   Update your progress and keep your work moving forward.
                 </p>
               </div>
-
-              <div className="update-heading-icon">✦</div>
             </section>
 
             {tasks.length === 0 ? (
@@ -728,14 +721,32 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                           'No additional instructions provided.'}
                       </p>
 
+                      {/* SHARED DOCUMENT FROM ADMIN */}
+                      {task.adminAttachment && (
+                        <div className="task-shared-admin-doc">
+                          <span className="shared-doc-label">Project Brief / Assigned Document:</span>
+                          <a
+                            href={
+                              task.adminAttachment.startsWith('/')
+                                ? `${BACKEND_URL}${task.adminAttachment}`
+                                : task.adminAttachment
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-view-admin-doc"
+                          >
+                            View Assigned Document ↗
+                          </a>
+                        </div>
+                      )}
+
                       {/* DEADLINE & LIVE COUNTDOWN TIMER BANNER */}
                       <div className={`user-task-timer-banner ${timerInfo.badgeClass}`}>
                         <div className="timer-banner-header">
-                          <span className="timer-clock-icon">⏱️</span>
                           <span className="timer-banner-title">
                             {timerInfo.isCompleted
-                              ? (timerInfo.isOnTime ? '✓ Completed On Time' : '✕ Completed Late')
-                              : (timerInfo.isOverdue ? '⚠️ Deadline Passed (Overdue)' : '⏱️ Task Deadline & Live Timer')}
+                              ? (timerInfo.isOnTime ? 'Completed On Time' : 'Completed Late')
+                              : (timerInfo.isOverdue ? 'Deadline Passed (Overdue)' : 'Task Deadline & Live Timer')}
                           </span>
                         </div>
                         <div className="timer-banner-body">
@@ -752,14 +763,12 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                       {task.adminFeedback ? (
                         <div className="task-admin-feedback-card active">
                           <div className="feedback-card-top">
-                            <span className="feedback-card-icon">💬</span>
                             <strong>Admin Feedback:</strong>
                           </div>
                           <p className="feedback-card-text">"{task.adminFeedback}"</p>
                         </div>
                       ) : (
                         <div className="task-admin-feedback-card awaiting">
-                          <span className="feedback-card-icon">💬</span>
                           <span className="feedback-card-awaiting-text">
                             No feedback from admin yet. Submit notes and proof below.
                           </span>
@@ -791,16 +800,13 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                         {/* Proof of Work Container */}
                         <div className="proof-section">
                           <div className="proof-header">
-                            <label>📎 Proof of Work (Document or Link)</label>
+                            <label>Proof of Work (Document or Link)</label>
                             <span className="proof-subtext">Admin will verify this proof</span>
                           </div>
 
                           {/* Existing / Staged Proof Preview */}
                           {(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment) && (
                             <div className="proof-chip">
-                              <span className="proof-chip-icon">
-                                {(proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).startsWith('/uploads/') ? '📄' : '🔗'}
-                              </span>
                               <a
                                 href={
                                   (proofs[taskId] !== undefined ? proofs[taskId] : task.proofAttachment).startsWith('/')
@@ -827,7 +833,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                                   }))
                                 }
                               >
-                                ✕
+                                Cancel
                               </button>
                             </div>
                           )}
@@ -849,7 +855,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                                 htmlFor={`file-input-${taskId}`}
                                 className={`btn-file-upload ${uploadingTask === taskId ? 'loading' : ''}`}
                               >
-                                <span className="upload-btn-icon">📁</span>
                                 <span className="upload-btn-text">
                                   {uploadingTask === taskId ? 'Uploading...' : 'Upload Document'}
                                 </span>
@@ -860,7 +865,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
 
                             {/* Paste Link Box */}
                             <div className="proof-url-wrapper">
-                              <span className="url-prefix-icon">🔗</span>
                               <input
                                 type="url"
                                 className="proof-url-input"
@@ -901,7 +905,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                         >
                           {savingTask === taskId
                             ? 'Saving Work & Proof...'
-                            : 'Save Progress & Proof 💾'}
+                            : 'Save Progress & Proof'}
                         </button>
                       </div>
 

@@ -4378,3 +4378,149 @@ tbody tr.admin-task-row .note-bubble {
     width: auto;
   }
 }
+
+/* Document Sharing Styling for Task Allocation & Master Table */
+.allocation-doc-wrapper {
+  margin-top: 6px;
+}
+
+.allocation-doc-inputs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-doc-file-picker {
+  background: var(--navy);
+  color: var(--white);
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.btn-doc-file-picker:hover {
+  background: #1B1942;
+  box-shadow: 0 4px 10px rgba(36, 33, 88, 0.25);
+}
+
+.doc-or-divider {
+  font-size: 12px;
+  color: #94A3B8;
+  font-weight: 600;
+}
+
+.doc-url-input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--navy);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.doc-url-input:focus {
+  border-color: var(--orange);
+}
+
+.doc-attached-preview {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #166534;
+}
+
+.btn-clear-doc {
+  background: none;
+  border: none;
+  color: #DC2626;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.btn-clear-doc:hover {
+  background: #FEE2E2;
+}
+
+.admin-shared-doc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--orange);
+  background: var(--orange-soft);
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-decoration: none;
+  border: 1px solid #FFD9C6;
+  transition: all 0.2s ease;
+}
+
+.admin-shared-doc-link:hover {
+  background: var(--orange);
+  color: var(--white);
+  border-color: var(--orange);
+}
+
+/* User Dashboard Shared Project Document */
+.task-shared-admin-doc {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-left: 3px solid var(--orange);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shared-doc-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.btn-view-admin-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--navy);
+  color: var(--white);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.btn-view-admin-doc:hover {
+  background: var(--orange);
+  color: var(--white);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(241, 111, 40, 0.25);
+}
+

@@ -322,12 +322,18 @@ app.get('/api/tasks', async (req, res) => {
 
 app.post('/api/tasks', async (req, res) => {
   try {
-    const { assignedTo, title, description, deadline } = req.body;
+    const { assignedTo, title, description, deadline, adminAttachment } = req.body;
     if (!assignedTo || !title) {
       return res.status(400).json({ error: 'Assigned user and title are required' });
     }
 
-    const newTask = await addTask({ assignedTo, title, description, deadline });
+    const newTask = await addTask({
+      assignedTo,
+      title,
+      description,
+      deadline,
+      adminAttachment: adminAttachment || '',
+    });
 
     // Look up user to broadcast to their rooms
     const user = await findUserByNameOrEmail(assignedTo);

@@ -14,6 +14,9 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [adminDocAttachment, setAdminDocAttachment] = useState('');
+  const [adminDocFileName, setAdminDocFileName] = useState('');
+  const [isUploadingAdminDoc, setIsUploadingAdminDoc] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [filterStatus, setFilterStatus] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -181,6 +184,29 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
     setDeadline(localIso);
   };
 
+  const handleAdminDocUpload = (file) => {
+    if (!file) return;
+    setIsUploadingAdminDoc(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const fileData = reader.result;
+        const res = await axios.post(`${API_BASE_URL}/upload`, {
+          fileName: file.name,
+          fileData,
+        });
+        setAdminDocAttachment(res.data.url);
+        setAdminDocFileName(file.name);
+      } catch (err) {
+        console.error('Admin document upload error:', err);
+        alert('Failed to upload document.');
+      } finally {
+        setIsUploadingAdminDoc(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleAssignTask = async (e) => {
     e.preventDefault();
     if (!assignedTo || !title) return;
@@ -191,12 +217,15 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         title,
         description,
         deadline: deadline ? new Date(deadline).toISOString() : '',
+        adminAttachment: adminDocAttachment.trim(),
       });
       setAssignedTo('');
       setTitle('');
       setDescription('');
       setDeadline('');
-      alert('✓ Task successfully allocated to team member!');
+      setAdminDocAttachment('');
+      setAdminDocFileName('');
+      alert('Task successfully allocated to team member.');
     } catch (err) {
       alert('Failed to assign task. Make sure tasks.xlsx is closed.');
     }
@@ -216,7 +245,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         });
         setNewEmpResume(res.data.url);
         setResumeFileName(file.name);
-        setEmpModalMsg({ type: 'success', text: `✓ Resume document uploaded: ${file.name}` });
+        setEmpModalMsg({ type: 'success', text: `Resume document uploaded: ${file.name}` });
       } catch (err) {
         console.error('Resume upload error:', err);
         setEmpModalMsg({ type: 'error', text: 'Failed to upload resume document.' });
@@ -249,7 +278,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         resume: newEmpResume.trim(),
       });
 
-      setEmpModalMsg({ type: 'success', text: `✓ Successfully added ${newEmpName} (${newEmpPosition.trim() || 'Specialist'}) to ${newEmpDept} Department!` });
+      setEmpModalMsg({ type: 'success', text: `Successfully added ${newEmpName} (${newEmpPosition.trim() || 'Specialist'}) to ${newEmpDept} Department.` });
       setTimeout(() => {
         setShowAddEmpModal(false);
         setNewEmpName('');
@@ -380,7 +409,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               className={`sidebar-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
               onClick={() => setActiveTab('dashboard')}
             >
-              <span className="nav-icon">📊</span>
               <span className="nav-label">Dashboard</span>
               <span className="nav-badge">{tasks.length}</span>
             </button>
@@ -390,7 +418,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               className={`sidebar-nav-item ${activeTab === 'attendance' ? 'active' : ''}`}
               onClick={() => setActiveTab('attendance')}
             >
-              <span className="nav-icon">🕒</span>
               <span className="nav-label">Attendance Logs</span>
               <span className="nav-badge live">Live</span>
             </button>
@@ -400,7 +427,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               className={`sidebar-nav-item ${activeTab === 'directory' ? 'active' : ''}`}
               onClick={() => setActiveTab('directory')}
             >
-              <span className="nav-icon">👥</span>
               <span className="nav-label">Employee Directory</span>
               <span className="nav-badge">{userModules.length}</span>
             </button>
@@ -410,7 +436,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               className={`sidebar-nav-item ${activeTab === 'allocation' ? 'active' : ''}`}
               onClick={() => setActiveTab('allocation')}
             >
-              <span className="nav-icon">✍️</span>
               <span className="nav-label">Task Allocation</span>
             </button>
 
@@ -419,7 +444,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               className={`sidebar-nav-item ${activeTab === 'submissions' ? 'active' : ''}`}
               onClick={() => setActiveTab('submissions')}
             >
-              <span className="nav-icon">📥</span>
               <span className="nav-label">Work Submissions</span>
               {submissionsList.length > 0 && (
                 <span className="nav-badge orange">{submissionsList.length}</span>
@@ -447,7 +471,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               onClick={() => setShowSettings(true)}
               title="Change Password & Admin Settings"
             >
-              ⚙️ Settings
+              Settings
             </button>
             <button
               type="button"
@@ -455,7 +479,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               onClick={onLogout}
               title="Logout from Workspace"
             >
-              🚪 Logout
+              Logout
             </button>
           </div>
         </div>
@@ -470,7 +494,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           <div className="topbar-left">
             <h1 className="topbar-page-title">
               {activeTab === 'dashboard' && 'Operations Dashboard'}
-              {activeTab === 'attendance' && 'Employee Attendance & Performance Logs'}
+              {activeTab === 'attendance' && 'Employee Attendance & Activity Logs'}
               {activeTab === 'directory' && 'Enterprise Employee Directory'}
               {activeTab === 'allocation' && 'Task Allocation & Assignment'}
               {activeTab === 'submissions' && 'Employee Work Submissions & Proofs'}
@@ -481,7 +505,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           </div>
 
           <div className="topbar-right">
-            <span className="live-pill-tag">● Live Sync Active</span>
+            <span className="live-pill-tag">Live Sync Active</span>
             <button
               type="button"
               className="btn-topbar-action"
@@ -509,7 +533,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                   Real-time status tracking, employee task allocations, countdown timer monitoring, and instant deliverable evaluations.
                 </p>
                 <div className="admin-profile-pill">
-                  👤 Logged in as: <strong>{adminName}</strong> ({adminEmail})
+                  Logged in as: <strong>{adminName}</strong> ({adminEmail})
                 </div>
               </div>
 
@@ -529,7 +553,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
             <div className="admin-overall-stats-grid">
               <div className="admin-stat-card card-total">
                 <div className="stat-card-header">
-                  <span className="stat-card-icon">📋</span>
                   <span className="stat-card-label">Total Assigned</span>
                 </div>
                 <strong className="stat-card-value">{tasks.length}</strong>
@@ -538,7 +561,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
               <div className="admin-stat-card card-pending">
                 <div className="stat-card-header">
-                  <span className="stat-card-icon">⏳</span>
                   <span className="stat-card-label">Pending</span>
                 </div>
                 <strong className="stat-card-value">{pendingCount}</strong>
@@ -547,7 +569,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
               <div className="admin-stat-card card-in-progress">
                 <div className="stat-card-header">
-                  <span className="stat-card-icon">⚡</span>
                   <span className="stat-card-label">In Progress</span>
                 </div>
                 <strong className="stat-card-value">{inProgressCount}</strong>
@@ -556,7 +577,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
               <div className="admin-stat-card card-completed">
                 <div className="stat-card-header">
-                  <span className="stat-card-icon">✅</span>
                   <span className="stat-card-label">Completed</span>
                 </div>
                 <strong className="stat-card-value">{completedCount}</strong>
@@ -565,7 +585,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
               <div className="admin-stat-card card-rate">
                 <div className="stat-card-header">
-                  <span className="stat-card-icon">🎯</span>
                   <span className="stat-card-label">Completion Rate</span>
                 </div>
                 <strong className="stat-card-value">{completionRate}%</strong>
@@ -601,7 +620,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
                   <input
                     type="text"
-                    placeholder="🔍 Search user or task..."
+                    placeholder="Search user or task..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="formal-search-input"
@@ -646,6 +665,19 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                   {task.description}
                                 </div>
                               )}
+                              {task.adminAttachment && (
+                                <div style={{ marginTop: '6px' }}>
+                                  <a
+                                    href={task.adminAttachment.startsWith('/') ? `${BACKEND_URL}${task.adminAttachment}` : task.adminAttachment}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="admin-shared-doc-link"
+                                    title="View document shared with employee"
+                                  >
+                                    View Shared Document ↗
+                                  </a>
+                                </div>
+                              )}
                             </td>
                             <td className={`deadline-col-cell ${timerInfo.colClass}`}>
                               <div className={`deadline-timer-badge ${timerInfo.badgeClass}`}>
@@ -671,7 +703,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                   className="admin-proof-badge"
                                   title={`Open proof: ${task.proofAttachment}`}
                                 >
-                                  {task.proofAttachment.startsWith('/uploads/') ? '📄 View Document ↗' : '🔗 Open Link ↗'}
+                                  {task.proofAttachment.startsWith('/uploads/') ? 'View Document ↗' : 'Open Link ↗'}
                                 </a>
                               ) : (
                                 <span style={{ color: '#94a3b8', fontSize: '13px' }}>— No proof —</span>
@@ -695,14 +727,14 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                       disabled={submittingFeedback}
                                       onClick={() => handleSaveFeedback(task.id)}
                                     >
-                                      {submittingFeedback ? 'Saving...' : 'Send 💬'}
+                                      {submittingFeedback ? 'Saving...' : 'Save Feedback'}
                                     </button>
                                     <button
                                       type="button"
                                       className="btn-feedback-cancel"
                                       onClick={() => setFeedbackEditingTaskId(null)}
                                     >
-                                      ✕
+                                      Cancel
                                     </button>
                                   </div>
                                 </div>
@@ -717,7 +749,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                     title="Edit feedback"
                                     onClick={() => handleOpenFeedback(task)}
                                   >
-                                    ✏️ Edit
+                                    Edit
                                   </button>
                                 </div>
                               ) : (
@@ -726,7 +758,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                   className="btn-give-feedback"
                                   onClick={() => handleOpenFeedback(task)}
                                 >
-                                  + Give Feedback 💬
+                                  + Give Feedback
                                 </button>
                               )}
                             </td>
@@ -799,7 +831,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
                   <input
                     type="text"
-                    placeholder="🔍 Search employee name..."
+                    placeholder="Search employee name..."
                     value={attendanceSearch}
                     onChange={(e) => setAttendanceSearch(e.target.value)}
                     className="formal-search-input"
@@ -851,7 +883,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                             </span>
                           </td>
                           <td>
-                            <span className="checkin-time-text">🕒 {emp.checkInTime}</span>
+                            <span className="checkin-time-text">{emp.checkInTime}</span>
                           </td>
                           <td>
                             <span className={`work-status-badge ${emp.inProgressCount > 0 ? 'working' : 'ready'}`}>
@@ -893,7 +925,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 onClick={() => setSelectedDept(selectedDept === 'IT' ? 'All' : 'IT')}
               >
                 <div className="dept-card-top">
-                  <span className="dept-icon">💻</span>
                   <span className="dept-tag">IT Department</span>
                 </div>
                 <h3>Information Technology</h3>
@@ -910,7 +941,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 onClick={() => setSelectedDept(selectedDept === 'HRD' ? 'All' : 'HRD')}
               >
                 <div className="dept-card-top">
-                  <span className="dept-icon">👥</span>
                   <span className="dept-tag">HRD Department</span>
                 </div>
                 <h3>Human Resource Dev</h3>
@@ -927,7 +957,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 onClick={() => setSelectedDept(selectedDept === 'Marketing' ? 'All' : 'Marketing')}
               >
                 <div className="dept-card-top">
-                  <span className="dept-icon">📈</span>
                   <span className="dept-tag">Marketing Department</span>
                 </div>
                 <h3>Marketing & Growth</h3>
@@ -958,7 +987,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               <div className="dir-search-wrap">
                 <input
                   type="text"
-                  placeholder="🔍 Search directory by name or email..."
+                  placeholder="Search directory by name or email..."
                   value={memberSearchQuery}
                   onChange={(e) => setMemberSearchQuery(e.target.value)}
                   className="formal-search-input"
@@ -1001,29 +1030,29 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                       {/* Employee Profile Details */}
                       <div className="emp-card-details">
                         <div className="emp-detail-row">
-                          <span className="emp-detail-label">💼 Position:</span>
+                          <span className="emp-detail-label">Position:</span>
                           <span className="emp-detail-value emp-position-badge">
                             {m.position || (dept === 'IT' ? 'Software Engineer' : dept === 'HRD' ? 'HR Specialist' : 'Marketing Associate')}
                           </span>
                         </div>
 
                         <div className="emp-detail-row">
-                          <span className="emp-detail-label">📅 Joining Date:</span>
+                          <span className="emp-detail-label">Joining Date:</span>
                           <span className="emp-detail-value">{m.joiningDate || '—'}</span>
                         </div>
 
                         <div className="emp-detail-row">
-                          <span className="emp-detail-label">✉️ Email:</span>
+                          <span className="emp-detail-label">Email:</span>
                           <span className="emp-detail-value emp-email-text" title={m.email}>{m.email}</span>
                         </div>
 
                         <div className="emp-detail-row">
-                          <span className="emp-detail-label">📞 Contact:</span>
+                          <span className="emp-detail-label">Contact:</span>
                           <span className="emp-detail-value">{m.contactNumber || '—'}</span>
                         </div>
 
                         <div className="emp-detail-row resume-row">
-                          <span className="emp-detail-label">📄 Resume:</span>
+                          <span className="emp-detail-label">Resume:</span>
                           {m.resume ? (
                             <a
                               href={m.resume.startsWith('/') ? `${BACKEND_URL}${m.resume}` : m.resume}
@@ -1032,25 +1061,12 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                               className="emp-resume-link"
                               title="Click to view full employee resume"
                             >
-                              📄 View Resume ↗
+                              View Resume ↗
                             </a>
                           ) : (
                             <span className="emp-no-resume">— No resume —</span>
                           )}
                         </div>
-                      </div>
-
-                      <div className="module-actions">
-                        <button
-                          type="button"
-                          className="btn-module-assign"
-                          onClick={() => {
-                            setAssignedTo(m.name);
-                            setActiveTab('allocation');
-                          }}
-                        >
-                          + Allocate Task
-                        </button>
                       </div>
                     </div>
                   );
@@ -1069,10 +1085,10 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 <div>
                   <h3 className="section-card-title">Task Allocation Center</h3>
                   <p className="section-card-subtitle">
-                    Assign deliverables with precision, choose team members by department, and enforce live countdown deadline timers.
+                    Assign deliverables with precision, choose team members by department, share briefs, and enforce live countdown deadline timers.
                   </p>
                 </div>
-                <span className="assign-timer-hint">⏱️ Timer activates on assignment</span>
+                <span className="assign-timer-hint">Timer activates on assignment</span>
               </div>
 
               <form onSubmit={handleAssignTask} className="allocation-form-grid">
@@ -1137,11 +1153,54 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                   />
                 </div>
 
+                {/* Share Document / Attachment */}
+                <div className="input-group">
+                  <label>Share Project Brief / Attachment Document (Optional)</label>
+                  <div className="resume-inputs-flex">
+                    <label className="btn-resume-file-picker">
+                      {isUploadingAdminDoc ? 'Uploading...' : adminDocFileName ? 'Change Document' : 'Upload Document'}
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.png,.jpg,.jpeg,application/pdf"
+                        onChange={(e) => handleAdminDocUpload(e.target.files[0])}
+                        style={{ display: 'none' }}
+                        disabled={isUploadingAdminDoc}
+                      />
+                    </label>
+                    <span className="resume-or-divider">or URL:</span>
+                    <input
+                      type="text"
+                      value={adminDocAttachment}
+                      onChange={(e) => {
+                        setAdminDocAttachment(e.target.value);
+                        setAdminDocFileName('');
+                      }}
+                      placeholder="https://... or uploaded file path"
+                      className="resume-url-input"
+                    />
+                  </div>
+                  {adminDocAttachment && (
+                    <div className="resume-attached-preview">
+                      <span>Attached Document: <strong>{adminDocFileName || adminDocAttachment}</strong></span>
+                      <button
+                        type="button"
+                        className="btn-clear-resume"
+                        onClick={() => {
+                          setAdminDocAttachment('');
+                          setAdminDocFileName('');
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Deadline & Timer */}
                 <div className="deadline-form-group">
                   <div className="deadline-input-header">
                     <label className="deadline-input-label">
-                      ⏱️ Deadline & Timer Limit (Time Constraint):
+                      Deadline & Time Limit:
                     </label>
                     <div className="deadline-preset-buttons">
                       <span className="deadline-presets-label">Quick Set:</span>
@@ -1151,7 +1210,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                       <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(1440)}>+1d</button>
                       <button type="button" className="btn-preset-chip" onClick={() => setQuickDeadline(2880)}>+2d</button>
                       {deadline && (
-                        <button type="button" className="btn-preset-clear" onClick={() => setDeadline('')}>Clear ✕</button>
+                        <button type="button" className="btn-preset-clear" onClick={() => setDeadline('')}>Clear</button>
                       )}
                     </div>
                   </div>
@@ -1163,7 +1222,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                   />
                   {deadline && (
                     <small className="deadline-target-note">
-                      ✓ Time limit set: <strong>{new Date(deadline).toLocaleString()}</strong>. Real-time timer starts upon allocation.
+                      Time limit set: <strong>{new Date(deadline).toLocaleString()}</strong>. Real-time timer starts upon allocation.
                     </small>
                   )}
                 </div>
@@ -1208,7 +1267,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
                   <input
                     type="text"
-                    placeholder="🔍 Search submissions..."
+                    placeholder="Search submissions..."
                     value={submissionSearch}
                     onChange={(e) => setSubmissionSearch(e.target.value)}
                     className="formal-search-input"
@@ -1261,6 +1320,18 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                               {task.description && (
                                 <p className="sub-task-desc">{task.description}</p>
                               )}
+                              {task.adminAttachment && (
+                                <div style={{ marginTop: '5px' }}>
+                                  <a
+                                    href={task.adminAttachment.startsWith('/') ? `${BACKEND_URL}${task.adminAttachment}` : task.adminAttachment}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="admin-shared-doc-link"
+                                  >
+                                    View Assigned Document ↗
+                                  </a>
+                                </div>
+                              )}
                             </td>
                             <td>
                               {task.proofAttachment ? (
@@ -1270,7 +1341,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                   rel="noopener noreferrer"
                                   className="admin-proof-badge"
                                 >
-                                  {task.proofAttachment.startsWith('/uploads/') ? '📄 View Document ↗' : '🔗 Open Link ↗'}
+                                  {task.proofAttachment.startsWith('/uploads/') ? 'View Document ↗' : 'Open Link ↗'}
                                 </a>
                               ) : (
                                 <span style={{ color: '#94a3b8' }}>— No attachment —</span>
@@ -1314,14 +1385,14 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                       disabled={submittingFeedback}
                                       onClick={() => handleSaveFeedback(task.id)}
                                     >
-                                      {submittingFeedback ? 'Saving...' : 'Send 💬'}
+                                      {submittingFeedback ? 'Saving...' : 'Save Feedback'}
                                     </button>
                                     <button
                                       type="button"
                                       className="btn-feedback-cancel"
                                       onClick={() => setFeedbackEditingTaskId(null)}
                                     >
-                                      ✕
+                                      Cancel
                                     </button>
                                   </div>
                                 </div>
@@ -1336,7 +1407,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                     title="Edit feedback"
                                     onClick={() => handleOpenFeedback(task)}
                                   >
-                                    ✏️ Edit
+                                    Edit
                                   </button>
                                 </div>
                               ) : (
@@ -1345,7 +1416,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                   className="btn-give-feedback"
                                   onClick={() => handleOpenFeedback(task)}
                                 >
-                                  + Give Feedback 💬
+                                  + Give Feedback
                                 </button>
                               )}
                             </td>
@@ -1371,12 +1442,11 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 <h3>Add New Employee</h3>
                 <p>Register new staff member into enterprise department modules</p>
               </div>
-              <button className="btn-close" onClick={() => setShowAddEmpModal(false)}>✕</button>
+              <button className="btn-close" onClick={() => setShowAddEmpModal(false)}>Cancel</button>
             </div>
 
             {empModalMsg.text && (
               <div className={`settings-alert ${empModalMsg.type}`}>
-                {empModalMsg.type === 'success' ? '✓ ' : '⚠️ '}
                 {empModalMsg.text}
               </div>
             )}
@@ -1390,9 +1460,9 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                   className="formal-select"
                   required
                 >
-                  <option value="IT">💻 IT Department (Engineering & Tech)</option>
-                  <option value="HRD">👥 HRD Department (Human Resources)</option>
-                  <option value="Marketing">📈 Marketing Department (Sales & Growth)</option>
+                  <option value="IT">IT Department (Engineering & Tech)</option>
+                  <option value="HRD">HRD Department (Human Resources)</option>
+                  <option value="Marketing">Marketing Department (Sales & Growth)</option>
                 </select>
               </div>
 
@@ -1482,7 +1552,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 <label>Resume (PDF / DOC / Document Link)</label>
                 <div className="resume-inputs-flex">
                   <label className="btn-resume-file-picker">
-                    📁 {isUploadingResume ? 'Uploading...' : resumeFileName ? 'Change Resume' : 'Upload Resume File'}
+                    {isUploadingResume ? 'Uploading...' : resumeFileName ? 'Change Resume' : 'Upload Resume File'}
                     <input
                       type="file"
                       accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -1505,7 +1575,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 </div>
                 {newEmpResume && (
                   <div className="resume-attached-preview">
-                    <span>✓ Attached Resume: <strong>{resumeFileName || newEmpResume}</strong></span>
+                    <span>Attached Resume: <strong>{resumeFileName || newEmpResume}</strong></span>
                     <button
                       type="button"
                       className="btn-clear-resume"
@@ -1514,7 +1584,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                         setResumeFileName('');
                       }}
                     >
-                      Remove ✕
+                      Remove
                     </button>
                   </div>
                 )}
@@ -1552,12 +1622,11 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 <h3>Admin Settings & Password</h3>
                 <p>Update administrator login credentials saved in tasks.xlsx</p>
               </div>
-              <button className="btn-close" onClick={() => setShowSettings(false)}>✕</button>
+              <button className="btn-close" onClick={() => setShowSettings(false)}>Cancel</button>
             </div>
 
             {settingsMsg.text && (
               <div className={`settings-alert ${settingsMsg.type}`}>
-                {settingsMsg.type === 'success' ? '✓ ' : '⚠️ '}
                 {settingsMsg.text}
               </div>
             )}
