@@ -232,9 +232,17 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           formData.append('uploadedRole', 'admin');
           formData.append('description', 'Initial project brief and reference document');
 
-          await axios.post(`${API_BASE_URL}/attachments/upload`, formData, {
+          const uploadRes = await axios.post(`${API_BASE_URL}/attachments/upload`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
           });
+
+          if (uploadRes.data?.attachmentId || uploadRes.data?.id) {
+            const attId = uploadRes.data.attachmentId || uploadRes.data.id;
+            const downloadUrl = `${API_BASE_URL}/attachments/download/${attId}?role=user`;
+            await axios.patch(`${API_BASE_URL}/tasks/${res.data.id}`, {
+              adminAttachment: downloadUrl,
+            });
+          }
         } catch (uploadErr) {
           console.error('Failed to upload task attachment to Google Drive:', uploadErr);
         }

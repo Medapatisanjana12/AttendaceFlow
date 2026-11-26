@@ -383,13 +383,14 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
 
     try {
       if (isDrive) {
-        await axios.delete(`${API_BASE_URL}/attachments/${file.id}`, {
+        const fileId = file.id || file.attachmentId;
+        await axios.delete(`${API_BASE_URL}/attachments/${fileId}`, {
           params: {
             role: 'user',
             email: userEmail
           }
         });
-        setAdminFiles((prev) => prev.filter((f) => f.id !== file.id));
+        setAdminFiles((prev) => prev.filter((f) => (f.id || f.attachmentId) !== fileId));
       } else {
         const taskId = file.taskId || file.id.replace('legacy-admin-', '').replace('legacy-user-', '');
         const patchData = file.legacyField === 'proofAttachment'
@@ -767,6 +768,56 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                               <p className="task-description">
                                 {task.description || 'No additional instructions.'}
                               </p>
+                              {(() => {
+                                const currentTaskId = String(getTaskId(task)).trim();
+                                const taskAdminAtts = adminFiles.filter(
+                                  (f) => String(f.taskId).trim() === currentTaskId && f.uploadDirection === 'Admin_to_User'
+                                );
+                                if (taskAdminAtts.length > 0) {
+                                  return (
+                                    <div className="task-admin-docs-list">
+                                      {taskAdminAtts.map((att) => {
+                                        const attId = att.id || att.attachmentId;
+                                        const dlUrl = `${API_BASE_URL}/attachments/download/${attId}?role=user&email=${encodeURIComponent(userEmail || '')}`;
+                                        return (
+                                          <a
+                                            key={attId}
+                                            href={dlUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="user-admin-doc-link"
+                                            title={`Download admin shared file: ${att.originalFileName}`}
+                                          >
+                                            📎 {att.originalFileName} ↗
+                                          </a>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                }
+                                if (task.adminAttachment) {
+                                  const dlUrl = task.adminAttachment.startsWith('http')
+                                    ? task.adminAttachment
+                                    : task.adminAttachment.startsWith('/')
+                                    ? `${BACKEND_URL}${task.adminAttachment}`
+                                    : `${API_BASE_URL}/attachments/download/${task.adminAttachment}?role=user&email=${encodeURIComponent(userEmail || '')}`;
+                                  const name = (task.adminAttachment.split('/').pop() || 'Admin Shared File').split('?')[0];
+                                  return (
+                                    <div className="task-admin-docs-list">
+                                      <a
+                                        href={dlUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="user-admin-doc-link"
+                                        title="Download admin shared file"
+                                      >
+                                        📎 {name} ↗
+                                      </a>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </td>
 
                             <td className={`deadline-col-cell ${timerInfo.colClass}`}>
@@ -942,6 +993,65 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                               'No additional instructions provided.'}
                           </p>
 
+                          {/* ADMIN SHARED DOCUMENTS IN TASK CARD */}
+                          {(() => {
+                            const currentTaskId = String(taskId).trim();
+                            const taskAdminAtts = adminFiles.filter(
+                              (f) => String(f.taskId).trim() === currentTaskId && f.uploadDirection === 'Admin_to_User'
+                            );
+                            if (taskAdminAtts.length > 0) {
+                              return (
+                                <div className="task-h-admin-attachments-box">
+                                  <span className="task-h-att-label">📁 File Shared by Admin:</span>
+                                  <div className="task-h-att-items">
+                                    {taskAdminAtts.map((att) => {
+                                      const attId = att.id || att.attachmentId;
+                                      const dlUrl = `${API_BASE_URL}/attachments/download/${attId}?role=user&email=${encodeURIComponent(userEmail || '')}`;
+                                      return (
+                                        <a
+                                          key={attId}
+                                          href={dlUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="btn-download-admin-brief"
+                                          title={`Download ${att.originalFileName}`}
+                                        >
+                                          <span>⬇ {att.originalFileName}</span>
+                                          {att.fileSize > 0 && <span className="att-brief-size">({formatFileSize(att.fileSize)})</span>}
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            if (task.adminAttachment) {
+                              const dlUrl = task.adminAttachment.startsWith('http')
+                                ? task.adminAttachment
+                                : task.adminAttachment.startsWith('/')
+                                ? `${BACKEND_URL}${task.adminAttachment}`
+                                : `${API_BASE_URL}/attachments/download/${task.adminAttachment}?role=user&email=${encodeURIComponent(userEmail || '')}`;
+                              const name = (task.adminAttachment.split('/').pop() || 'Admin Shared File').split('?')[0];
+                              return (
+                                <div className="task-h-admin-attachments-box">
+                                  <span className="task-h-att-label">📁 File Shared by Admin:</span>
+                                  <div className="task-h-att-items">
+                                    <a
+                                      href={dlUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="btn-download-admin-brief"
+                                      title="Download shared document"
+                                    >
+                                      ⬇ {name}
+                                    </a>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+
                           {/* DEADLINE & LIVE COUNTDOWN TIMER BANNER */}
                           <div className={`user-task-timer-banner ${timerInfo.badgeClass}`}>
                             <div className="timer-banner-header">
@@ -1001,11 +1111,13 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                 </div>
               </section>
             )}
+          </>
+        )}
 
-            {/* ========================================================
-                2. CENTRALIZED SECTION: FILES & ATTACHMENTS (BOTTOM)
-                ======================================================== */}
-            <section className="user-admin-files-hub card">
+        {/* ========================================================
+            2. CENTRALIZED SECTION: FILES & ATTACHMENTS (BOTTOM)
+            ======================================================== */}
+        <section className="user-admin-files-hub card">
               <div className="admin-files-hub-header">
                 <div className="hub-title-wrap">
                   <div className="hub-title-row">
@@ -1066,12 +1178,14 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                 <div className="admin-files-horizontal-list">
                   {filteredFilesList.map((file) => {
                     const badge = getFileTypeBadge(file.fileType, file.originalFileName);
+                    const fileId = file.id || file.attachmentId;
+                    const fileDate = file.createdAt || file.uploadedDate;
                     const downloadLink = file.isLegacy
                       ? file.downloadUrl
-                      : `${API_BASE_URL}/attachments/download/${file.id}?role=user&email=${encodeURIComponent(userEmail || '')}`;
+                      : `${API_BASE_URL}/attachments/download/${fileId}?role=user&email=${encodeURIComponent(userEmail || '')}`;
 
                     return (
-                      <div key={file.id} className="att-row-item admin-hub-file-row">
+                      <div key={fileId} className="att-row-item admin-hub-file-row">
                         <div className="att-row-left">
                           <span
                             className="att-type-icon-pill"
@@ -1096,8 +1210,8 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                             </div>
                             <div className="att-row-info">
                               {file.fileSize > 0 && <span>{formatFileSize(file.fileSize)}</span>}
-                              {file.fileSize > 0 && file.createdAt && <span>•</span>}
-                              {file.createdAt && <span>{formatDate(file.createdAt)}</span>}
+                              {file.fileSize > 0 && fileDate && <span>•</span>}
+                              {fileDate && <span>{formatDate(fileDate)}</span>}
                               {file.description && (
                                 <>
                                   <span>•</span>
@@ -1155,8 +1269,6 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                 </div>
               )}
             </section>
-          </>
-        )}
       </main>
 
       <footer className="user-footer">

@@ -529,7 +529,13 @@ app.get('/api/attachments', async (req, res) => {
     const allAttachments = await getAllAttachments();
 
     if (role === 'admin') {
-      return res.json(allAttachments);
+      return res.json(
+        allAttachments.map((att) => ({
+          ...att,
+          id: att.attachmentId || att.id,
+          createdAt: att.uploadedDate || att.createdAt,
+        }))
+      );
     }
 
     if (!email) {
@@ -562,6 +568,8 @@ app.get('/api/attachments', async (req, res) => {
         const parentTask = userTaskMap.get(String(att.taskId).trim());
         return {
           ...att,
+          id: att.attachmentId || att.id,
+          createdAt: att.uploadedDate || att.createdAt,
           taskTitle: parentTask?.title || '',
         };
       });

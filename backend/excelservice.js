@@ -1115,6 +1115,7 @@ async function getAttachmentsByTaskId(taskId) {
     const rowTaskId = getCellValueString(row.getCell(2));
     if (rowTaskId === targetId) {
       attachments.push({
+        id: getCellValueString(row.getCell(1)),
         attachmentId: getCellValueString(row.getCell(1)),
         taskId: rowTaskId,
         fileName: getCellValueString(row.getCell(3)),
@@ -1126,6 +1127,7 @@ async function getAttachmentsByTaskId(taskId) {
         uploadDirection: getCellValueString(row.getCell(9)),
         googleDriveFileId: getCellValueString(row.getCell(10)),
         googleDriveFolderId: getCellValueString(row.getCell(11)),
+        createdAt: getCellValueString(row.getCell(12)),
         uploadedDate: getCellValueString(row.getCell(12)),
         description: getCellValueString(row.getCell(13)),
       });
@@ -1210,6 +1212,7 @@ async function getAllAttachments() {
   attachmentSheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
     attachments.push({
+      id: getCellValueString(row.getCell(1)),
       attachmentId: getCellValueString(row.getCell(1)),
       taskId: getCellValueString(row.getCell(2)),
       fileName: getCellValueString(row.getCell(3)),
@@ -1221,6 +1224,7 @@ async function getAllAttachments() {
       uploadDirection: getCellValueString(row.getCell(9)),
       googleDriveFileId: getCellValueString(row.getCell(10)),
       googleDriveFolderId: getCellValueString(row.getCell(11)),
+      createdAt: getCellValueString(row.getCell(12)),
       uploadedDate: getCellValueString(row.getCell(12)),
       description: getCellValueString(row.getCell(13)),
     });

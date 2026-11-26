@@ -7003,5 +7003,95 @@ tbody tr.admin-task-row .note-bubble {
   margin-top: 1px;
 }
 
+/* =====================================================
+   USER DASHBOARD: ADMIN SHARED DOCUMENTS LINKS & BOXES
+===================================================== */
+.task-admin-docs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.user-admin-doc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #F87524;
+  background: #FFF7ED;
+  border: 1px solid #FED7AA;
+  border-radius: 6px;
+  padding: 4px 9px;
+  text-decoration: none;
+  max-width: fit-content;
+  transition: all 0.2s ease;
+}
+
+.user-admin-doc-link:hover {
+  background: #FFEDD5;
+  color: #C2410C;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(248, 117, 36, 0.15);
+}
+
+.task-h-admin-attachments-box {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 9px;
+  padding: 10px 14px;
+  margin-top: 10px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-h-att-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.task-h-att-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-download-admin-brief {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #242052;
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  border-radius: 7px;
+  padding: 6px 12px;
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+.btn-download-admin-brief:hover {
+  background: #EFF6FF;
+  border-color: #93C5FD;
+  color: #1D4ED8;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(29, 78, 216, 0.12);
+}
+
+.att-brief-size {
+  font-size: 11px;
+  color: #64748B;
+  font-weight: 500;
+}
+
+
 
 
