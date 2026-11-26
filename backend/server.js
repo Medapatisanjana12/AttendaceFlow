@@ -250,7 +250,17 @@ app.get('/api/admin/attendance', async (req, res) => {
 
 app.post('/api/admin/employees', async (req, res) => {
   try {
-    const { name, username, email, password, department } = req.body;
+    const {
+      name,
+      username,
+      email,
+      password,
+      department,
+      position,
+      joiningDate,
+      contactNumber,
+      resume,
+    } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     }
@@ -261,6 +271,10 @@ app.post('/api/admin/employees', async (req, res) => {
       password,
       role: 'user',
       department: department || 'IT',
+      position: position || '',
+      joiningDate: joiningDate || '',
+      contactNumber: contactNumber || '',
+      resume: resume || '',
     });
 
     io.to('admins').emit('user_modules_updated');

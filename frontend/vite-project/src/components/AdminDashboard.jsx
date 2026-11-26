@@ -28,6 +28,12 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   // Add Employee Modal State
   const [showAddEmpModal, setShowAddEmpModal] = useState(false);
   const [newEmpName, setNewEmpName] = useState('');
+  const [newEmpPosition, setNewEmpPosition] = useState('');
+  const [newEmpJoiningDate, setNewEmpJoiningDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newEmpContact, setNewEmpContact] = useState('');
+  const [newEmpResume, setNewEmpResume] = useState('');
+  const [resumeFileName, setResumeFileName] = useState('');
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
   const [newEmpUsername, setNewEmpUsername] = useState('');
   const [newEmpEmail, setNewEmpEmail] = useState('');
   const [newEmpPassword, setNewEmpPassword] = useState('');
@@ -196,11 +202,36 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
     }
   };
 
+  const handleResumeUpload = (file) => {
+    if (!file) return;
+    setIsUploadingResume(true);
+    setEmpModalMsg({ type: '', text: '' });
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const fileData = reader.result;
+        const res = await axios.post(`${API_BASE_URL}/upload`, {
+          fileName: file.name,
+          fileData,
+        });
+        setNewEmpResume(res.data.url);
+        setResumeFileName(file.name);
+        setEmpModalMsg({ type: 'success', text: `✓ Resume document uploaded: ${file.name}` });
+      } catch (err) {
+        console.error('Resume upload error:', err);
+        setEmpModalMsg({ type: 'error', text: 'Failed to upload resume document.' });
+      } finally {
+        setIsUploadingResume(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     setEmpModalMsg({ type: '', text: '' });
     if (!newEmpName || !newEmpEmail || !newEmpPassword) {
-      setEmpModalMsg({ type: 'error', text: 'Please fill out all required fields.' });
+      setEmpModalMsg({ type: 'error', text: 'Please fill out employee name, email, and password.' });
       return;
     }
 
@@ -212,12 +243,21 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         email: newEmpEmail.trim().toLowerCase(),
         password: newEmpPassword,
         department: newEmpDept,
+        position: newEmpPosition.trim() || (newEmpDept === 'IT' ? 'Software Engineer' : newEmpDept === 'HRD' ? 'HR Specialist' : 'Marketing Associate'),
+        joiningDate: newEmpJoiningDate || new Date().toISOString().split('T')[0],
+        contactNumber: newEmpContact.trim(),
+        resume: newEmpResume.trim(),
       });
 
-      setEmpModalMsg({ type: 'success', text: `✓ Successfully added ${newEmpName} to ${newEmpDept} Department!` });
+      setEmpModalMsg({ type: 'success', text: `✓ Successfully added ${newEmpName} (${newEmpPosition.trim() || 'Specialist'}) to ${newEmpDept} Department!` });
       setTimeout(() => {
         setShowAddEmpModal(false);
         setNewEmpName('');
+        setNewEmpPosition('');
+        setNewEmpJoiningDate(new Date().toISOString().split('T')[0]);
+        setNewEmpContact('');
+        setNewEmpResume('');
+        setResumeFileName('');
         setNewEmpUsername('');
         setNewEmpEmail('');
         setNewEmpPassword('');
@@ -731,20 +771,15 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 </strong>
                 <span className="att-kpi-sub">On current deliverables</span>
               </div>
-              <div className="att-kpi-card navy">
-                <span className="att-kpi-label">Avg Performance Rating</span>
-                <strong className="att-kpi-value">4.9 / 5.0</strong>
-                <span className="att-kpi-sub">High Delivery Standard</span>
-              </div>
             </div>
 
             {/* Attendance Table Card */}
             <div className="card">
               <div className="table-header-flex">
                 <div>
-                  <h3 className="section-card-title">Employee Attendance, Performance & Activity Log</h3>
+                  <h3 className="section-card-title">Employee Attendance & Activity Log</h3>
                   <p className="section-card-subtitle">
-                    Real-time operational status, daily check-in time, performance ratings, and delivery pace.
+                    Real-time operational status, daily check-in time, and delivery pace.
                   </p>
                 </div>
 
@@ -782,7 +817,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                       <th>Check-in Time</th>
                       <th>Current Work Status</th>
                       <th>Tasks Velocity</th>
-                      <th>Performance Rating</th>
                       <th>Last Active</th>
                     </tr>
                   </thead>
@@ -833,12 +867,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                   style={{ width: `${emp.completionRate}%` }}
                                 />
                               </div>
-                            </div>
-                          </td>
-                          <td>
-                            <div className="rating-cell">
-                              <span className="stars-text">{emp.stars}</span>
-                              <span className="tier-text">{emp.performanceTier}</span>
                             </div>
                           </td>
                           <td>
@@ -945,7 +973,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               </div>
             </div>
 
-            {/* Employee Modules Grid */}
+            {/* Employee Directory Cards Grid */}
             <div className="user-modules-grid">
               {userModules
                 .filter((m) => {
@@ -960,73 +988,57 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                   const initials = m.name.slice(0, 2).toUpperCase();
 
                   return (
-                    <div key={m.userId || m.email} className="user-module-card">
+                    <div key={m.userId || m.email} className="user-module-card employee-directory-card">
                       <div className="module-top">
                         <div className="member-avatar">{initials}</div>
                         <div className="member-meta">
                           <h4>{m.name}</h4>
-                          <span className="member-email">@{m.username} • {m.email}</span>
+                          <span className="member-email">@{m.username}</span>
                           <span className={`dept-badge ${dept.toLowerCase()}`}>{dept}</span>
                         </div>
-                        <span className="progress-pill high">
-                          {m.progressPercent}% Done
-                        </span>
                       </div>
 
-                      <div className="module-progress-bar-bg">
-                        <div
-                          className="module-progress-bar-fill"
-                          style={{ width: `${m.progressPercent}%` }}
-                        />
-                      </div>
+                      {/* Employee Profile Details */}
+                      <div className="emp-card-details">
+                        <div className="emp-detail-row">
+                          <span className="emp-detail-label">💼 Position:</span>
+                          <span className="emp-detail-value emp-position-badge">
+                            {m.position || (dept === 'IT' ? 'Software Engineer' : dept === 'HRD' ? 'HR Specialist' : 'Marketing Associate')}
+                          </span>
+                        </div>
 
-                      <div className="module-stats-grid">
-                        <div className="module-stat-tile assigned">
-                          <span className="stat-label">📋 Assigned</span>
-                          <span className="stat-val">{m.totalAssigned}</span>
+                        <div className="emp-detail-row">
+                          <span className="emp-detail-label">📅 Joining Date:</span>
+                          <span className="emp-detail-value">{m.joiningDate || '—'}</span>
                         </div>
-                        <div className="module-stat-tile completed">
-                          <span className="stat-label">✅ Completed</span>
-                          <span className="stat-val">{m.completedCount}</span>
-                        </div>
-                        <div className="module-stat-tile in-progress">
-                          <span className="stat-label">⚡ In Progress</span>
-                          <span className="stat-val">{m.inProgressCount}</span>
-                        </div>
-                        <div className="module-stat-tile incomplete">
-                          <span className="stat-label">⏳ Incomplete</span>
-                          <span className="stat-val">{m.incompleteCount}</span>
-                        </div>
-                      </div>
 
-                      {m.latestNote ? (
-                        <div className="module-latest-note">
-                          <span className="note-tag">💬 Latest Note:</span>
-                          <p className="note-text">"{m.latestNote}"</p>
-                          <small className="note-task-ref">On: {m.latestNoteTaskTitle}</small>
+                        <div className="emp-detail-row">
+                          <span className="emp-detail-label">✉️ Email:</span>
+                          <span className="emp-detail-value emp-email-text" title={m.email}>{m.email}</span>
                         </div>
-                      ) : (
-                        <div className="module-latest-note empty">
-                          <small>No progress notes recorded yet</small>
-                        </div>
-                      )}
 
-                      {m.proofsCount > 0 && (
-                        <div className="module-proofs-tag">
-                          <span className="proof-icon">📎</span>
-                          <span>{m.proofsCount} Proof{m.proofsCount > 1 ? 's' : ''} Attached</span>
-                          {m.latestProof && (
+                        <div className="emp-detail-row">
+                          <span className="emp-detail-label">📞 Contact:</span>
+                          <span className="emp-detail-value">{m.contactNumber || '—'}</span>
+                        </div>
+
+                        <div className="emp-detail-row resume-row">
+                          <span className="emp-detail-label">📄 Resume:</span>
+                          {m.resume ? (
                             <a
-                              href={m.latestProof.startsWith('/') ? `${BACKEND_URL}${m.latestProof}` : m.latestProof}
+                              href={m.resume.startsWith('/') ? `${BACKEND_URL}${m.resume}` : m.resume}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="module-proof-link"
+                              className="emp-resume-link"
+                              title="Click to view full employee resume"
                             >
-                              View Latest ↗
+                              📄 View Resume ↗
                             </a>
+                          ) : (
+                            <span className="emp-no-resume">— No resume —</span>
                           )}
                         </div>
-                      )}
+                      </div>
 
                       <div className="module-actions">
                         <button
@@ -1353,7 +1365,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       ===================================================== */}
       {showAddEmpModal && (
         <div className="modal-overlay" onClick={() => setShowAddEmpModal(false)}>
-          <div className="admin-settings-card" onClick={(e) => e.stopPropagation()}>
+          <div className="admin-settings-card admin-add-emp-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <h3>Add New Employee</h3>
@@ -1384,27 +1396,54 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 </select>
               </div>
 
-              <div className="form-group">
-                <label>Employee Full Name <span className="required-star">*</span></label>
-                <input
-                  type="text"
-                  required
-                  value={newEmpName}
-                  onChange={(e) => setNewEmpName(e.target.value)}
-                  placeholder="e.g. Sanjana Medapati"
-                />
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Employee Full Name <span className="required-star">*</span></label>
+                  <input
+                    type="text"
+                    required
+                    value={newEmpName}
+                    onChange={(e) => setNewEmpName(e.target.value)}
+                    placeholder="e.g. Sanjana Medapati"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Position / Designation <span className="required-star">*</span></label>
+                  <input
+                    type="text"
+                    required
+                    value={newEmpPosition}
+                    onChange={(e) => setNewEmpPosition(e.target.value)}
+                    placeholder="e.g. Senior Software Engineer"
+                  />
+                </div>
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Username (Login ID)</label>
+                  <label>Joining Date <span className="required-star">*</span></label>
                   <input
-                    type="text"
-                    value={newEmpUsername}
-                    onChange={(e) => setNewEmpUsername(e.target.value)}
-                    placeholder="e.g. sanzz"
+                    type="date"
+                    required
+                    value={newEmpJoiningDate}
+                    onChange={(e) => setNewEmpJoiningDate(e.target.value)}
                   />
                 </div>
+
+                <div className="form-group">
+                  <label>Contact Number <span className="required-star">*</span></label>
+                  <input
+                    type="tel"
+                    required
+                    value={newEmpContact}
+                    onChange={(e) => setNewEmpContact(e.target.value)}
+                    placeholder="e.g. +91 98765 43210"
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
                 <div className="form-group">
                   <label>Official Email <span className="required-star">*</span></label>
                   <input
@@ -1413,6 +1452,16 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                     value={newEmpEmail}
                     onChange={(e) => setNewEmpEmail(e.target.value)}
                     placeholder="e.g. sanz@company.com"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Username (Login ID)</label>
+                  <input
+                    type="text"
+                    value={newEmpUsername}
+                    onChange={(e) => setNewEmpUsername(e.target.value)}
+                    placeholder="e.g. sanzz"
                   />
                 </div>
               </div>
@@ -1428,6 +1477,49 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 />
               </div>
 
+              {/* Resume Document Upload & URL */}
+              <div className="form-group resume-upload-group">
+                <label>Resume (PDF / DOC / Document Link)</label>
+                <div className="resume-inputs-flex">
+                  <label className="btn-resume-file-picker">
+                    📁 {isUploadingResume ? 'Uploading...' : resumeFileName ? 'Change Resume' : 'Upload Resume File'}
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={(e) => handleResumeUpload(e.target.files[0])}
+                      style={{ display: 'none' }}
+                      disabled={isUploadingResume}
+                    />
+                  </label>
+                  <span className="resume-or-divider">or URL:</span>
+                  <input
+                    type="text"
+                    value={newEmpResume}
+                    onChange={(e) => {
+                      setNewEmpResume(e.target.value);
+                      setResumeFileName('');
+                    }}
+                    placeholder="https://... or uploaded file path"
+                    className="resume-url-input"
+                  />
+                </div>
+                {newEmpResume && (
+                  <div className="resume-attached-preview">
+                    <span>✓ Attached Resume: <strong>{resumeFileName || newEmpResume}</strong></span>
+                    <button
+                      type="button"
+                      className="btn-clear-resume"
+                      onClick={() => {
+                        setNewEmpResume('');
+                        setResumeFileName('');
+                      }}
+                    >
+                      Remove ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="modal-actions">
                 <button
                   type="button"
@@ -1439,7 +1531,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 <button
                   type="submit"
                   className="btn-save"
-                  disabled={isAddingEmp}
+                  disabled={isAddingEmp || isUploadingResume}
                 >
                   {isAddingEmp ? 'Adding Employee...' : '+ Create Employee Profile'}
                 </button>

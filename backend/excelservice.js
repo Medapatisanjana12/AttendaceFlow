@@ -66,13 +66,17 @@ async function initExcel() {
       { header: 'role', key: 'role', width: 15 },
       { header: 'username', key: 'username', width: 25 },
       { header: 'department', key: 'department', width: 25 },
+      { header: 'position', key: 'position', width: 28 },
+      { header: 'joiningDate', key: 'joiningDate', width: 20 },
+      { header: 'contactNumber', key: 'contactNumber', width: 22 },
+      { header: 'resume', key: 'resume', width: 45 },
     ];
 
     // Seed default Admin account and default user
     const defaultAdminHash = await bcrypt.hash('admin123', 10);
     const defaultUserHash = await bcrypt.hash('user123', 10);
-    userSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin', 'Management']);
-    userSheet.addRow(['2', 'Jessica Taylor', 'jessica12@gmail.com', defaultUserHash, 'user', 'jessica', 'Marketing']);
+    userSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin', 'Management', 'System Administrator', '2023-01-15', '+1 555-0100', '']);
+    userSheet.addRow(['2', 'Jessica Taylor', 'jessica12@gmail.com', defaultUserHash, 'user', 'jessica', 'Marketing', 'Marketing Strategist', '2024-03-01', '+1 555-0199', '']);
 
     await workbook.xlsx.writeFile(FILE_PATH);
     console.log('Created tasks.xlsx with Tasks and Users sheets');
@@ -131,9 +135,14 @@ async function initExcel() {
           { header: 'passwordHash', key: 'passwordHash', width: 65 },
           { header: 'role', key: 'role', width: 15 },
           { header: 'username', key: 'username', width: 25 },
+          { header: 'department', key: 'department', width: 25 },
+          { header: 'position', key: 'position', width: 28 },
+          { header: 'joiningDate', key: 'joiningDate', width: 20 },
+          { header: 'contactNumber', key: 'contactNumber', width: 22 },
+          { header: 'resume', key: 'resume', width: 45 },
         ];
         const defaultAdminHash = await bcrypt.hash('admin123', 10);
-        newUsersSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin']);
+        newUsersSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin', 'Management', 'System Administrator', '2023-01-15', '+1 555-0100', '']);
         needsSave = true;
       } else {
         if (userSheet.getCell(1, 6).value !== 'username') {
@@ -162,6 +171,68 @@ async function initExcel() {
           });
           needsSave = true;
         }
+
+        // Schema expansion: position (Col 8), joiningDate (Col 9), contactNumber (Col 10), resume (Col 11)
+        if (userSheet.getCell(1, 8).value !== 'position') {
+          userSheet.getCell(1, 8).value = 'position';
+          userSheet.getColumn(8).width = 28;
+          needsSave = true;
+        }
+        if (userSheet.getCell(1, 9).value !== 'joiningDate') {
+          userSheet.getCell(1, 9).value = 'joiningDate';
+          userSheet.getColumn(9).width = 20;
+          needsSave = true;
+        }
+        if (userSheet.getCell(1, 10).value !== 'contactNumber') {
+          userSheet.getCell(1, 10).value = 'contactNumber';
+          userSheet.getColumn(10).width = 22;
+          needsSave = true;
+        }
+        if (userSheet.getCell(1, 11).value !== 'resume') {
+          userSheet.getCell(1, 11).value = 'resume';
+          userSheet.getColumn(11).width = 45;
+          needsSave = true;
+        }
+
+        // Backfill default profile fields for existing rows
+        userSheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return;
+          const uRole = getCellValueString(row.getCell(5));
+          const uName = getCellValueString(row.getCell(2)).toLowerCase();
+          const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
+
+          if (!row.getCell(8).value) {
+            if (uRole === 'admin') row.getCell(8).value = 'System Administrator';
+            else if (uName.includes('sanz')) row.getCell(8).value = 'Lead Software Engineer';
+            else if (uName.includes('jessica')) row.getCell(8).value = 'Marketing Strategist';
+            else if (uName.includes('rohan')) row.getCell(8).value = 'HR Operations Lead';
+            else row.getCell(8).value = 'Team Specialist';
+            needsSave = true;
+          }
+
+          if (!row.getCell(9).value) {
+            if (uRole === 'admin') row.getCell(9).value = '2023-01-15';
+            else if (uName.includes('sanz')) row.getCell(9).value = '2024-01-10';
+            else if (uName.includes('jessica')) row.getCell(9).value = '2024-03-01';
+            else if (uName.includes('rohan')) row.getCell(9).value = '2024-02-01';
+            else row.getCell(9).value = '2024-04-01';
+            needsSave = true;
+          }
+
+          if (!row.getCell(10).value) {
+            if (uRole === 'admin') row.getCell(10).value = '+1 555-0100';
+            else if (uName.includes('sanz')) row.getCell(10).value = '+91 98765 43210';
+            else if (uName.includes('jessica')) row.getCell(10).value = '+1 555-0199';
+            else if (uName.includes('rohan')) row.getCell(10).value = '+91 91234 56789';
+            else row.getCell(10).value = '+91 98000 12345';
+            needsSave = true;
+          }
+
+          if (row.getCell(11).value === undefined || row.getCell(11).value === null) {
+            row.getCell(11).value = '';
+            needsSave = true;
+          }
+        });
       }
 
       if (needsSave) {
@@ -209,6 +280,10 @@ async function findUserByNameOrEmail(identifier) {
         role: getCellValueString(row.getCell(5)) || 'user',
         username: rowUsername || rowName.replace(/\s+/g, '_'),
         department: getCellValueString(row.getCell(7)) || 'IT',
+        position: getCellValueString(row.getCell(8)) || 'Team Specialist',
+        joiningDate: getCellValueString(row.getCell(9)) || '',
+        contactNumber: getCellValueString(row.getCell(10)) || '',
+        resume: getCellValueString(row.getCell(11)) || '',
       };
     }
   });
@@ -219,7 +294,18 @@ async function findUserByEmail(email) {
   return findUserByNameOrEmail(email);
 }
 
-function registerUser({ name, username, email, password, role = 'user', department = 'IT' }) {
+function registerUser({
+  name,
+  username,
+  email,
+  password,
+  role = 'user',
+  department = 'IT',
+  position = '',
+  joiningDate = '',
+  contactNumber = '',
+  resume = '',
+}) {
   return enqueueWrite(async () => {
     const existingEmail = await findUserByNameOrEmail(email);
     if (existingEmail) {
@@ -237,6 +323,10 @@ function registerUser({ name, username, email, password, role = 'user', departme
     }
 
     const cleanDepartment = (department || 'IT').trim();
+    const cleanPosition = (position || (role === 'admin' ? 'System Administrator' : 'Associate Specialist')).trim();
+    const cleanJoiningDate = (joiningDate || new Date().toISOString().split('T')[0]).trim();
+    const cleanContact = (contactNumber || '').trim();
+    const cleanResume = (resume || '').trim();
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(FILE_PATH);
@@ -250,6 +340,10 @@ function registerUser({ name, username, email, password, role = 'user', departme
       email: email.trim().toLowerCase(),
       role,
       department: cleanDepartment,
+      position: cleanPosition,
+      joiningDate: cleanJoiningDate,
+      contactNumber: cleanContact,
+      resume: cleanResume,
     };
 
     sheet.addRow([
@@ -260,6 +354,10 @@ function registerUser({ name, username, email, password, role = 'user', departme
       newUser.role,
       newUser.username,
       newUser.department,
+      newUser.position,
+      newUser.joiningDate,
+      newUser.contactNumber,
+      newUser.resume,
     ]);
 
     await syncUserProgressSheet(workbook);
@@ -610,6 +708,11 @@ async function getAllUsers() {
       const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
       const uRole = getCellValueString(row.getCell(5)) || 'user';
       const uDept = getCellValueString(row.getCell(7)) || (uRole === 'admin' ? 'Management' : 'IT');
+      const uPos = getCellValueString(row.getCell(8)) || (uRole === 'admin' ? 'System Administrator' : 'Associate Specialist');
+      const uJoiningDate = getCellValueString(row.getCell(9)) || '';
+      const uContact = getCellValueString(row.getCell(10)) || '';
+      const uResume = getCellValueString(row.getCell(11)) || '';
+
       users.push({
         id: getCellValueString(row.getCell(1)),
         name: uName,
@@ -617,6 +720,10 @@ async function getAllUsers() {
         email: uEmail,
         role: uRole,
         department: uDept,
+        position: uPos,
+        joiningDate: uJoiningDate,
+        contactNumber: uContact,
+        resume: uResume,
       });
     });
   }
@@ -638,6 +745,11 @@ async function getUserProgressModules() {
       const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
       const uRole = getCellValueString(row.getCell(5)) || 'user';
       const uDept = getCellValueString(row.getCell(7)) || (uRole === 'admin' ? 'Management' : 'IT');
+      const uPos = getCellValueString(row.getCell(8)) || (uRole === 'admin' ? 'System Administrator' : 'Associate Specialist');
+      const uJoiningDate = getCellValueString(row.getCell(9)) || '';
+      const uContact = getCellValueString(row.getCell(10)) || '';
+      const uResume = getCellValueString(row.getCell(11)) || '';
+
       users.push({
         id: getCellValueString(row.getCell(1)),
         name: uName,
@@ -645,6 +757,10 @@ async function getUserProgressModules() {
         email: uEmail,
         role: uRole,
         department: uDept,
+        position: uPos,
+        joiningDate: uJoiningDate,
+        contactNumber: uContact,
+        resume: uResume,
       });
     });
   }
@@ -706,6 +822,10 @@ async function getUserProgressModules() {
       username: user.username,
       email: user.email,
       department: user.department || 'IT',
+      position: user.position || 'Associate Specialist',
+      joiningDate: user.joiningDate || '',
+      contactNumber: user.contactNumber || '',
+      resume: user.resume || '',
       totalAssigned,
       completedCount: completedTasks.length,
       inProgressCount: inProgressTasks.length,
@@ -784,6 +904,10 @@ async function getAttendanceLogs() {
       username: u.username,
       email: u.email,
       department: u.department || 'IT',
+      position: u.position || 'Associate Specialist',
+      joiningDate: u.joiningDate || '',
+      contactNumber: u.contactNumber || '',
+      resume: u.resume || '',
       attendanceStatus: 'Present',
       checkInTime: `${checkIn} Today`,
       workStatus,
