@@ -1061,26 +1061,28 @@ app.get('/api/google-drive/callback', async (req, res) => {
     console.log(`[OAuth Diagnostic] - Token scope: ${tokens.scope || 'none'}`);
     console.log(`[OAuth Diagnostic] - Token expiry: ${tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : 'unknown'}`);
 
+    // Requirement 8: If Google does not return a new refresh token, preserve an existing valid refresh token
+    const effectiveRefreshToken = tokens.refresh_token || process.env.GOOGLE_REFRESH_TOKEN;
+
     if (tokens.refresh_token) {
-      // 1. Persist to in-memory environment, .credentials.json, and .env (completely isolated from tasks.xlsx)
       persistCredentials({ refreshToken: tokens.refresh_token });
-      console.log('[OAuth Diagnostic] Refresh token securely stored in .credentials.json and environment.');
+      console.log('[OAuth Diagnostic] New refresh token securely stored in .credentials.json and environment.');
+    } else if (process.env.GOOGLE_REFRESH_TOKEN) {
+      console.log('[OAuth Diagnostic] Google did not return a new refresh token; successfully preserved existing valid GOOGLE_REFRESH_TOKEN.');
+    } else {
+      console.warn('[OAuth Diagnostic] Warning: Google did not return a refresh token and no prior refresh token was stored.');
+    }
 
-      // 2. Re-initialize Google Drive service with the new refresh token
-      googleDriveService.initClient(tokens.refresh_token);
+    if (effectiveRefreshToken) {
+      // Requirement 9: Configure the Google OAuth client with the stored refresh token
+      googleDriveService.initClient(effectiveRefreshToken);
 
-      // 3. Automatically verify/create Workly folder hierarchy
+      // Automatically verify/create Workly folder hierarchy
       googleDriveService.ensureWorklyHierarchy().then((folders) => {
         console.log(`[OAuth Diagnostic] Google Drive Workly folder hierarchy ready: root=${folders?.rootFolderId}`);
       }).catch((hErr) => {
         console.warn('[server] Failed to auto-initialize Workly folder hierarchy:', hErr.message);
       });
-    } else {
-      console.warn('[OAuth Diagnostic] Note: Google did not return a new refresh_token in this exchange (account may have already granted consent). Using access_token for current session.');
-      if (tokens.access_token) {
-        googleDriveService.oauth2Client = oauth2;
-        googleDriveService.driveClient = google.drive({ version: 'v3', auth: oauth2 });
-      }
     }
 
     // Immediately run testConnection to verify real Google Drive API request
@@ -1092,11 +1094,16 @@ app.get('/api/google-drive/callback', async (req, res) => {
       console.error('[OAuth Diagnostic] Live Google Drive API test encountered error:', testErr.message);
     }
 
+    const isRender = Boolean(process.env.RENDER || process.env.IS_RENDER || process.env.RENDER_SERVICE_ID);
+
     if (req.headers.accept?.includes('application/json')) {
       return res.json({
         success: true,
         message: 'Google Drive connected successfully. Refresh token stored securely.',
         liveTest,
+        render: isRender ? {
+          persistentStrategy: 'Save GOOGLE_REFRESH_TOKEN in Render Dashboard > Environment to persist across redeployments.',
+        } : null,
       });
     }
 
@@ -1109,8 +1116,15 @@ app.get('/api/google-drive/callback', async (req, res) => {
           &#10004; OAuth 2.0 authorization completed successfully!
         </p>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-          ${liveTest?.connected ? 'Real Google Drive API request succeeded: Connected as ' + (liveTest.authenticatedUser || 'Authorized User') + '.' : 'The refresh token has been securely stored on the backend.'}
+          ${liveTest?.connected ? 'Real Google Drive API request verified! Connected as: <strong>' + (liveTest.authenticatedUser || 'Authorized User') + '</strong>.' : 'The refresh token has been securely stored on the backend.'}
         </p>
+        ${isRender ? `
+        <div style="margin-top: 16px; padding: 14px; background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 8px;">
+          <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #3730A3;">Render Production Note:</p>
+          <p style="margin: 0; font-size: 12px; color: #4338CA; line-height: 1.5;">
+            Google Drive is now active in this running container! Because Render containers have ephemeral storage across new Git deploys, add <code>GOOGLE_REFRESH_TOKEN</code> to your Render Dashboard Environment tab (<strong>Your Web Service &gt; Environment</strong>) to make it permanent across future redeployments.
+          </p>
+        </div>` : ''}
         <div style="margin-top: 20px; padding: 14px; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px;">
           <p style="margin: 0; font-size: 13px; color: #475569;">
             Verify live connection status:
@@ -1144,6 +1158,7 @@ app.get('/oauth2callback', (req, res) => {
  */
 app.get('/api/google-drive/test', async (req, res) => {
   try {
+    loadStoredCredentials();
     const result = await googleDriveService.testConnection();
     const statusCode = result.connected ? 200 : 400;
     res.status(statusCode).json(result);
@@ -1161,6 +1176,7 @@ app.get('/api/google-drive/test', async (req, res) => {
  * Quick non-blocking status check for UI badges.
  */
 app.get('/api/google-drive/status', (req, res) => {
+  loadStoredCredentials();
   const hasClientId = Boolean(process.env.GOOGLE_CLIENT_ID);
   const hasClientSecret = Boolean(process.env.GOOGLE_CLIENT_SECRET);
   const hasRefreshToken = Boolean(process.env.GOOGLE_REFRESH_TOKEN);
@@ -1180,6 +1196,11 @@ app.get('/api/google-drive/status', (req, res) => {
  */
 app.post('/api/google-drive/configure', async (req, res) => {
   try {
+    const userRole = req.headers['x-user-role'] || req.body.userRole || req.body.role;
+    if (userRole && userRole !== 'admin') {
+      return res.status(403).json({ error: 'Access denied: Only administrators can configure Google Drive integration.' });
+    }
+
     const { clientId, clientSecret, rootFolderId } = req.body;
     if (!clientId || !clientSecret) {
       return res.status(400).json({ error: 'Client ID and Client Secret are required.' });
@@ -1201,6 +1222,8 @@ app.post('/api/google-drive/configure', async (req, res) => {
       clientSecret: cleanClientSecret,
       rootFolderId: cleanRootFolderId,
     });
+
+    googleDriveService.reloadCredentials();
 
     // Generate OAuth Authorization URL
     const redirectUri =

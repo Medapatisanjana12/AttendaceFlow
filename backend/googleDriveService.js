@@ -13,6 +13,59 @@ class GoogleDriveService {
     this.initClient();
   }
 
+  reloadCredentials() {
+    // 1. Reload from .credentials.json (if exists)
+    try {
+      const credPath = path.join(__dirname, '.credentials.json');
+      if (fs.existsSync(credPath)) {
+        const raw = fs.readFileSync(credPath, 'utf8');
+        const data = JSON.parse(raw);
+        if (data.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID) {
+          process.env.GOOGLE_CLIENT_ID = data.GOOGLE_CLIENT_ID;
+        }
+        if (data.GOOGLE_CLIENT_SECRET && !process.env.GOOGLE_CLIENT_SECRET) {
+          process.env.GOOGLE_CLIENT_SECRET = data.GOOGLE_CLIENT_SECRET;
+        }
+        if (data.GOOGLE_REDIRECT_URI && !process.env.GOOGLE_REDIRECT_URI) {
+          process.env.GOOGLE_REDIRECT_URI = data.GOOGLE_REDIRECT_URI;
+        }
+        if (data.GOOGLE_REFRESH_TOKEN) {
+          process.env.GOOGLE_REFRESH_TOKEN = data.GOOGLE_REFRESH_TOKEN;
+        }
+        if (data.GOOGLE_DRIVE_ROOT_FOLDER_ID && !process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+          process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = data.GOOGLE_DRIVE_ROOT_FOLDER_ID;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Reload from .env (if exists)
+    try {
+      const envPath = path.join(__dirname, '.env');
+      if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, 'utf8');
+        envContent.split('\n').forEach((line) => {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) {
+            const idx = trimmed.indexOf('=');
+            if (idx !== -1) {
+              const key = trimmed.slice(0, idx).trim();
+              const val = trimmed.slice(idx + 1).trim().replace(/(^['"]|['"]$)/g, '');
+              if (key === 'GOOGLE_REFRESH_TOKEN' && val) {
+                process.env.GOOGLE_REFRESH_TOKEN = val;
+              } else if (!process.env[key] && val) {
+                process.env[key] = val;
+              }
+            }
+          }
+        });
+      }
+    } catch (_) {}
+
+    if (this.isConfigured() && (!this.driveClient || !this.oauth2Client)) {
+      this.initClient();
+    }
+  }
+
   isConfigured() {
     return Boolean(
       process.env.GOOGLE_CLIENT_ID &&
@@ -397,6 +450,9 @@ class GoogleDriveService {
    * Tests the Google Drive connection and verifies the Workly folder structure.
    */
   async testConnection() {
+    // 1. Ensure latest credentials are reloaded from disk/environment before checking
+    this.reloadCredentials();
+
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
       return {
         connected: false,
@@ -414,12 +470,16 @@ class GoogleDriveService {
     }
 
     try {
-      const drive = this.getDrive();
+      let drive = this.getDrive();
       if (!drive) {
-        throw new Error('Google Drive client could not be initialized.');
+        this.initClient();
+        drive = this.getDrive();
+      }
+      if (!drive) {
+        throw new Error('Google Drive client could not be initialized from credentials.');
       }
 
-      // Verify API accessibility
+      // Verify real Google Drive API accessibility
       const aboutRes = await drive.about.get({
         fields: 'user, storageQuota',
       });
@@ -442,10 +502,27 @@ class GoogleDriveService {
         timestamp: new Date().toISOString(),
       };
     } catch (err) {
+      const errMsg = err.message || '';
+      let status = 'error';
+      let message = 'Google Drive connection test failed: ' + errMsg;
+
+      if (
+        errMsg.includes('invalid_grant') ||
+        (err.code === 400 && errMsg.includes('Token')) ||
+        errMsg.includes('Token has been expired or revoked')
+      ) {
+        status = 'token_revoked_or_expired';
+        message = 'The Google Drive refresh token has expired or been revoked. Please re-authorize at /api/google-drive/auth.';
+      } else if (err.code === 403 || errMsg.includes('insufficientPermissions')) {
+        status = 'insufficient_permissions';
+        message = 'Google Drive authorization lacks the required permissions. Ensure drive.file scope is granted at /api/google-drive/auth.';
+      }
+
       return {
         connected: false,
-        status: 'error',
-        message: 'Google Drive connection test failed: ' + err.message,
+        status,
+        message,
+        code: err.code || null,
       };
     }
   }
