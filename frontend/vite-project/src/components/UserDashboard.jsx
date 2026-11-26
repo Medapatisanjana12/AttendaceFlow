@@ -835,7 +835,14 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                           </td>
 
                           <td>
-                            <StatusBadge status={task.status} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start' }}>
+                              <StatusBadge status={task.status} />
+                              {(task.adminChecked === true || task.adminChecked === 'true') && (
+                                <span className="user-admin-checked-badge" title="The administrator has reviewed and checked your project deliverables">
+                                  <span className="checked-tick">✓</span> Admin Checked
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           <td>{task.updatedAt || '—'}</td>
@@ -915,6 +922,18 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                             </span>
                             <StatusBadge status={status} />
                           </div>
+
+                          {(task.adminChecked === true || task.adminChecked === 'true') && (
+                            <div className="user-project-checked-banner">
+                              <div className="checked-banner-icon-circle">✓</div>
+                              <div className="checked-banner-text-group">
+                                <strong className="checked-banner-heading">Project Checked by Admin</strong>
+                                <span className="checked-banner-sub">
+                                  The administrator has reviewed and checked your submitted project deliverables.
+                                </span>
+                              </div>
+                            </div>
+                          )}
 
                           <h3 className="task-h-title">{task.title}</h3>
 

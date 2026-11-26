@@ -28,7 +28,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [userModules, setUserModules] = useState([]);
   const [selectedUserFilter, setSelectedUserFilter] = useState('All');
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
-  const [selectedDept, setSelectedDept] = useState('All'); // 'All' | 'IT' | 'HRD' | 'Marketing'
+  const [selectedDept, setSelectedDept] = useState(null); // null (closed) | 'IT' | 'HRD' | 'Marketing'
   const [allocationDept, setAllocationDept] = useState('All');
 
   // Add Employee Modal State
@@ -95,6 +95,20 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
       alert('Failed to save feedback.');
     } finally {
       setSubmittingFeedback(false);
+    }
+  };
+
+  const handleToggleCheckTask = async (taskId, checked) => {
+    try {
+      await axios.patch(`${API_BASE_URL}/tasks/${taskId}`, {
+        adminChecked: checked,
+      });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, adminChecked: checked } : t))
+      );
+    } catch (err) {
+      console.error('Failed to update checked status:', err);
+      alert('Failed to update checked status.');
     }
   };
 
@@ -637,7 +651,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                       <th className="th-proof">Proof of Work</th>
                       <th className="th-feedback">Admin Feedback</th>
                       <th className="th-status">Status</th>
-                      <th className="th-updated">Last Updated</th>
+                      <th className="th-updated">Task Assigned Time</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -774,8 +788,27 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                               <span className={`badge ${statusText.toLowerCase().replace(' ', '-')}`}>
                                 {statusText}
                               </span>
+                              {(task.adminChecked === true || task.adminChecked === 'true') && (
+                                <div style={{ marginTop: '5px' }}>
+                                  <span className="badge-admin-checked-pill-sm">
+                                    ✓ Checked
+                                  </span>
+                                </div>
+                              )}
                             </td>
-                            <td className="td-updated">{task.updatedAt || '—'}</td>
+                            <td className="td-updated">
+                              {task.createdAt ? (
+                                new Date(task.createdAt).toLocaleString(undefined, {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })
+                              ) : (
+                                task.assignedDate || task.updatedAt || '—'
+                              )}
+                            </td>
                           </tr>
                         );
                       })
@@ -926,14 +959,20 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
         ---------------------------------------------------- */}
         {activeTab === 'directory' && (
           <div className="formal-view-container">
-            {/* Department Metric Cards */}
+            {/* Department Metric Cards - Click to open/close department */}
             <div className="dept-summary-row">
               <div
                 className={`dept-summary-card it ${selectedDept === 'IT' ? 'active' : ''}`}
-                onClick={() => setSelectedDept(selectedDept === 'IT' ? 'All' : 'IT')}
+                onClick={() => setSelectedDept(selectedDept === 'IT' ? null : 'IT')}
+                role="button"
+                tabIndex={0}
+                style={{ cursor: 'pointer' }}
               >
                 <div className="dept-card-top">
                   <span className="dept-tag">IT Department</span>
+                  <span className="dept-open-status-hint">
+                    {selectedDept === 'IT' ? 'Open ▼' : 'Click to Open →'}
+                  </span>
                 </div>
                 <h3>Information Technology</h3>
                 <p>Software development, bug fixes, architecture & infrastructure</p>
@@ -946,10 +985,16 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
               <div
                 className={`dept-summary-card hrd ${selectedDept === 'HRD' ? 'active' : ''}`}
-                onClick={() => setSelectedDept(selectedDept === 'HRD' ? 'All' : 'HRD')}
+                onClick={() => setSelectedDept(selectedDept === 'HRD' ? null : 'HRD')}
+                role="button"
+                tabIndex={0}
+                style={{ cursor: 'pointer' }}
               >
                 <div className="dept-card-top">
                   <span className="dept-tag">HRD Department</span>
+                  <span className="dept-open-status-hint">
+                    {selectedDept === 'HRD' ? 'Open ▼' : 'Click to Open →'}
+                  </span>
                 </div>
                 <h3>Human Resource Dev</h3>
                 <p>Talent management, compliance, onboarding & team performance</p>
@@ -962,10 +1007,16 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
               <div
                 className={`dept-summary-card mkt ${selectedDept === 'Marketing' ? 'active' : ''}`}
-                onClick={() => setSelectedDept(selectedDept === 'Marketing' ? 'All' : 'Marketing')}
+                onClick={() => setSelectedDept(selectedDept === 'Marketing' ? null : 'Marketing')}
+                role="button"
+                tabIndex={0}
+                style={{ cursor: 'pointer' }}
               >
                 <div className="dept-card-top">
                   <span className="dept-tag">Marketing Department</span>
+                  <span className="dept-open-status-hint">
+                    {selectedDept === 'Marketing' ? 'Open ▼' : 'Click to Open →'}
+                  </span>
                 </div>
                 <h3>Marketing & Growth</h3>
                 <p>Brand visibility, campaigns, digital outreach & client proposals</p>
@@ -977,45 +1028,78 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               </div>
             </div>
 
-            {/* Department Filter & Action Bar */}
-            <div className="directory-action-bar">
-              <div className="filter-pills">
-                {['All', 'IT', 'HRD', 'Marketing'].map((dept) => (
-                  <button
-                    key={dept}
-                    type="button"
-                    className={selectedDept === dept ? 'pill active' : 'pill'}
-                    onClick={() => setSelectedDept(dept)}
-                  >
-                    {dept === 'All' ? 'All Departments' : `${dept} Dept`}
+            {/* Department-Gated: Show prompt when no department is open */}
+            {!selectedDept ? (
+              <div className="dept-gated-placeholder">
+                <div className="dept-gated-icon-box">🏢</div>
+                <h3 className="dept-gated-title">Select a Department to View Employee Details</h3>
+                <p className="dept-gated-desc">
+                  Employee profiles and details are kept organized by department. Click any department card above to open its employee directory.
+                </p>
+                <div className="dept-quick-open-buttons">
+                  <button type="button" className="btn-open-dept-pill it" onClick={() => setSelectedDept('IT')}>
+                    Open IT Department ({userModules.filter((m) => (m.department || 'IT') === 'IT').length})
                   </button>
-                ))}
+                  <button type="button" className="btn-open-dept-pill hrd" onClick={() => setSelectedDept('HRD')}>
+                    Open HRD Department ({userModules.filter((m) => m.department === 'HRD').length})
+                  </button>
+                  <button type="button" className="btn-open-dept-pill mkt" onClick={() => setSelectedDept('Marketing')}>
+                    Open Marketing Department ({userModules.filter((m) => m.department === 'Marketing').length})
+                  </button>
+                </div>
               </div>
+            ) : (
+              <>
+                {/* Department Filter & Action Bar */}
+                <div className="directory-action-bar">
+                  <div className="filter-pills">
+                    <span className="active-dept-label">
+                      Viewing: <strong>{selectedDept} Department</strong>
+                    </span>
+                    {['IT', 'HRD', 'Marketing'].map((dept) => (
+                      <button
+                        key={dept}
+                        type="button"
+                        className={selectedDept === dept ? 'pill active' : 'pill'}
+                        onClick={() => setSelectedDept(dept)}
+                      >
+                        {dept} Dept
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="pill pill-close-dept"
+                      onClick={() => setSelectedDept(null)}
+                      title="Close department directory"
+                    >
+                      ✕ Close Department
+                    </button>
+                  </div>
 
-              <div className="dir-search-wrap">
-                <input
-                  type="text"
-                  placeholder="Search directory by name or email..."
-                  value={memberSearchQuery}
-                  onChange={(e) => setMemberSearchQuery(e.target.value)}
-                  className="formal-search-input"
-                />
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={() => setShowAddEmpModal(true)}
-                >
-                  + Add New Employee
-                </button>
-              </div>
-            </div>
+                  <div className="dir-search-wrap">
+                    <input
+                      type="text"
+                      placeholder={`Search ${selectedDept} by name or email...`}
+                      value={memberSearchQuery}
+                      onChange={(e) => setMemberSearchQuery(e.target.value)}
+                      className="formal-search-input"
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => setShowAddEmpModal(true)}
+                    >
+                      + Add New Employee
+                    </button>
+                  </div>
+                </div>
 
             {/* Employee Directory Cards Grid */}
             <div className="user-modules-grid">
               {userModules
                 .filter((m) => {
                   const mDept = m.department || 'IT';
-                  const matchesDept = selectedDept === 'All' || mDept === selectedDept;
+                  const matchesDept = mDept === selectedDept;
                   const q = memberSearchQuery.toLowerCase();
                   const matchesQuery = !q || m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q);
                   return matchesDept && matchesQuery;
@@ -1080,6 +1164,8 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                   );
                 })}
             </div>
+              </>
+            )}
           </div>
         )}
 
@@ -1092,9 +1178,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
               <div className="form-title-row">
                 <div>
                   <h3 className="section-card-title">Task Allocation Center</h3>
-                  <p className="section-card-subtitle">
-                    Assign deliverables with precision, choose team members by department, share briefs, and enforce live countdown deadline timers.
-                  </p>
                 </div>
                 <span className="assign-timer-hint">Timer activates on assignment</span>
               </div>
@@ -1294,6 +1377,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                       <th>Submission Status</th>
                       <th>Deadline Compliance</th>
                       <th>Admin Feedback</th>
+                      <th style={{ textAlign: 'center' }}>Admin Review Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1436,6 +1520,32 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                                   onClick={() => handleOpenFeedback(task)}
                                 >
                                   + Give Feedback
+                                </button>
+                              )}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              {(task.adminChecked === true || task.adminChecked === 'true') ? (
+                                <div className="checked-status-action-cell">
+                                  <span className="badge-admin-checked-pill">
+                                    <span className="checked-tick-icon">✓</span> Checked
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="btn-undo-check-action"
+                                    onClick={() => handleToggleCheckTask(task.id, false)}
+                                    title="Click to mark as unreviewed"
+                                  >
+                                    Undo
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn-mark-checked-action"
+                                  onClick={() => handleToggleCheckTask(task.id, true)}
+                                  title="Mark this project deliverables as checked & reviewed"
+                                >
+                                  ✓ Mark as Checked
                                 </button>
                               )}
                             </td>
@@ -1760,7 +1870,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 }}
                 uploadDirection="Admin_to_User"
                 title="Task Files & Deliverables (Google Drive)"
-                canUpload={true}
+                canUpload={false}
               />
             </div>
           </div>

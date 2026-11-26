@@ -115,14 +115,15 @@ io.on('connection', (socket) => {
 app.patch('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, userNote, proofAttachment, adminFeedback, deadline } = req.body;
+    const { status, userNote, proofAttachment, adminFeedback, deadline, adminChecked } = req.body;
 
     if (
       status === undefined &&
       userNote === undefined &&
       proofAttachment === undefined &&
       adminFeedback === undefined &&
-      deadline === undefined
+      deadline === undefined &&
+      adminChecked === undefined
     ) {
       return res.status(400).json({
         error: 'No update information provided',
@@ -149,6 +150,10 @@ app.patch('/api/tasks/:id', async (req, res) => {
 
     if (deadline !== undefined) {
       updates.deadline = deadline;
+    }
+
+    if (adminChecked !== undefined) {
+      updates.adminChecked = adminChecked;
     }
 
     const updatedTask = await updateTask(id, updates);

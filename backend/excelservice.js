@@ -155,6 +155,11 @@ async function initExcel() {
           taskSheet.getColumn(14).width = 45;
           needsSave = true;
         }
+        if (taskSheet.getCell(1, 15).value !== 'adminChecked') {
+          taskSheet.getCell(1, 15).value = 'adminChecked';
+          taskSheet.getColumn(15).width = 20;
+          needsSave = true;
+        }
       }
 
       const userSheet = workbook.getWorksheet('Users');
@@ -560,6 +565,7 @@ async function getAllTasks() {
       completedAt: getCellValueString(row.getCell(12)),
       createdAt: getCellValueString(row.getCell(13)),
       adminAttachment: getCellValueString(row.getCell(14)),
+      adminChecked: getCellValueString(row.getCell(15)) === 'true' || getCellValueString(row.getCell(15)) === 'Checked',
     });
   });
 
@@ -594,6 +600,7 @@ function addTask(taskData) {
       completedAt: '',
       createdAt: nowIso,
       adminAttachment: taskData.adminAttachment || taskData.attachment || '',
+      adminChecked: false,
     };
 
     sheet.addRow([
@@ -611,6 +618,7 @@ function addTask(taskData) {
       newTask.completedAt,
       newTask.createdAt,
       newTask.adminAttachment,
+      'false',
     ]);
 
     await syncUserProgressSheet(workbook);
@@ -619,7 +627,7 @@ function addTask(taskData) {
   });
 }
 
-function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, deadline }) {
+function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, deadline, description, adminAttachment, adminChecked }) {
   return enqueueWrite(async () => {
     await initExcel();
     const workbook = new ExcelJS.Workbook();
@@ -649,6 +657,9 @@ function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, 
         if (proofAttachment !== undefined) row.getCell(8).value = proofAttachment;
         if (adminFeedback !== undefined) row.getCell(10).value = adminFeedback;
         if (deadline !== undefined) row.getCell(11).value = deadline;
+        if (description !== undefined) row.getCell(4).value = description;
+        if (adminAttachment !== undefined) row.getCell(14).value = adminAttachment;
+        if (adminChecked !== undefined) row.getCell(15).value = adminChecked ? 'true' : 'false';
         row.getCell(6).value = new Date().toLocaleString();
 
         const rawAssigned = getCellValueString(row.getCell(2));
@@ -674,6 +685,7 @@ function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, 
           completedAt: getCellValueString(row.getCell(12)),
           createdAt: createdAtVal,
           adminAttachment: getCellValueString(row.getCell(14)),
+          adminChecked: getCellValueString(row.getCell(15)) === 'true' || getCellValueString(row.getCell(15)) === 'Checked',
         };
       }
     });
