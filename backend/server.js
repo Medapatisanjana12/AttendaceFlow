@@ -66,6 +66,9 @@ function loadStoredCredentials() {
       if (data.GOOGLE_CLIENT_SECRET && !process.env.GOOGLE_CLIENT_SECRET) {
         process.env.GOOGLE_CLIENT_SECRET = data.GOOGLE_CLIENT_SECRET;
       }
+      if (data.GOOGLE_REDIRECT_URI && !process.env.GOOGLE_REDIRECT_URI) {
+        process.env.GOOGLE_REDIRECT_URI = data.GOOGLE_REDIRECT_URI;
+      }
       if (data.GOOGLE_DRIVE_ROOT_FOLDER_ID && !process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
         process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = data.GOOGLE_DRIVE_ROOT_FOLDER_ID;
       }
@@ -76,12 +79,18 @@ function loadStoredCredentials() {
       console.warn('[server] Failed reading .credentials.json:', err.message);
     }
   }
+
+  // Ensure deterministic default redirect URI if not set
+  if (!process.env.GOOGLE_REDIRECT_URI) {
+    process.env.GOOGLE_REDIRECT_URI = 'http://localhost:5000/api/google-drive/callback';
+  }
 }
 loadStoredCredentials();
 
-function persistCredentials({ clientId, clientSecret, rootFolderId, refreshToken }) {
+function persistCredentials({ clientId, clientSecret, redirectUri, rootFolderId, refreshToken }) {
   if (clientId) process.env.GOOGLE_CLIENT_ID = clientId;
   if (clientSecret) process.env.GOOGLE_CLIENT_SECRET = clientSecret;
+  if (redirectUri) process.env.GOOGLE_REDIRECT_URI = redirectUri;
   if (rootFolderId) process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = rootFolderId;
   if (refreshToken) process.env.GOOGLE_REFRESH_TOKEN = refreshToken;
 
@@ -96,6 +105,7 @@ function persistCredentials({ clientId, clientSecret, rootFolderId, refreshToken
       ...existing,
       ...(clientId ? { GOOGLE_CLIENT_ID: clientId } : {}),
       ...(clientSecret ? { GOOGLE_CLIENT_SECRET: clientSecret } : {}),
+      ...(redirectUri || process.env.GOOGLE_REDIRECT_URI ? { GOOGLE_REDIRECT_URI: redirectUri || process.env.GOOGLE_REDIRECT_URI } : {}),
       ...(rootFolderId ? { GOOGLE_DRIVE_ROOT_FOLDER_ID: rootFolderId } : {}),
       ...(refreshToken ? { GOOGLE_REFRESH_TOKEN: refreshToken } : {}),
       updatedAt: new Date().toISOString(),
@@ -120,6 +130,8 @@ function persistCredentials({ clientId, clientSecret, rootFolderId, refreshToken
     };
     if (clientId) envContent = updateEnv(envContent, 'GOOGLE_CLIENT_ID', clientId);
     if (clientSecret) envContent = updateEnv(envContent, 'GOOGLE_CLIENT_SECRET', clientSecret);
+    const rUri = redirectUri || process.env.GOOGLE_REDIRECT_URI;
+    if (rUri) envContent = updateEnv(envContent, 'GOOGLE_REDIRECT_URI', rUri);
     if (rootFolderId) envContent = updateEnv(envContent, 'GOOGLE_DRIVE_ROOT_FOLDER_ID', rootFolderId);
     if (refreshToken) envContent = updateEnv(envContent, 'GOOGLE_REFRESH_TOKEN', refreshToken);
     fs.writeFileSync(envFile, envContent, 'utf8');
@@ -897,6 +909,7 @@ function validateOAuthState(state) {
  */
 app.get('/api/google-drive/auth', (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    console.warn('[OAuth Diagnostic] /api/google-drive/auth blocked: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET missing.');
     return res.status(400).json({
       error: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured in environment variables before authenticating with Google.',
     });
@@ -922,6 +935,17 @@ app.get('/api/google-drive/auth', (req, res) => {
     state,
   });
 
+  const clientIdSuffix = process.env.GOOGLE_CLIENT_ID.slice(-25);
+  const projNum = process.env.GOOGLE_CLIENT_ID.split('-')[0];
+  console.log('[OAuth Diagnostic] /api/google-drive/auth generated:');
+  console.log(`[OAuth Diagnostic] - Project Number: ${projNum}`);
+  console.log(`[OAuth Diagnostic] - Client ID suffix: ...${clientIdSuffix}`);
+  console.log(`[OAuth Diagnostic] - Client Secret loaded: true (length: ${process.env.GOOGLE_CLIENT_SECRET?.length || 0})`);
+  console.log(`[OAuth Diagnostic] - Redirect URI in request: ${redirectUri}`);
+  console.log(`[OAuth Diagnostic] - Scope: https://www.googleapis.com/auth/drive.file`);
+  console.log(`[OAuth Diagnostic] - access_type: offline, prompt: consent, response_type: code`);
+  console.log(`[OAuth Diagnostic] - State token: ${state.slice(0, 8)}... (expires in 15m)`);
+
   if (req.query.json === 'true' || req.headers.accept?.includes('application/json')) {
     return res.json({ authUrl, redirectUri, state });
   }
@@ -935,29 +959,82 @@ app.get('/api/drive/auth-url', (req, res) => {
 });
 
 /**
+ * GET /api/google-drive/debug
+ * Provides a safe, sanitized diagnostic view of the OAuth configuration and live status.
+ */
+app.get('/api/google-drive/debug', (req, res) => {
+  const hasClientId = Boolean(process.env.GOOGLE_CLIENT_ID);
+  const hasClientSecret = Boolean(process.env.GOOGLE_CLIENT_SECRET);
+  const hasRefreshToken = Boolean(process.env.GOOGLE_REFRESH_TOKEN);
+  const projNum = hasClientId ? process.env.GOOGLE_CLIENT_ID.split('-')[0] : null;
+  const clientIdSuffix = hasClientId ? process.env.GOOGLE_CLIENT_ID.slice(-25) : null;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}/api/google-drive/callback`;
+
+  res.json({
+    timestamp: new Date().toISOString(),
+    isFullyConfigured: Boolean(hasClientId && hasClientSecret && hasRefreshToken),
+    oauth: {
+      hasClientId,
+      projectNumber: projNum,
+      clientIdMasked: hasClientId ? `${projNum}-...${clientIdSuffix}` : null,
+      hasClientSecret,
+      clientSecretLength: process.env.GOOGLE_CLIENT_SECRET ? process.env.GOOGLE_CLIENT_SECRET.length : 0,
+      hasRefreshToken,
+      redirectUri,
+      requiredScope: 'https://www.googleapis.com/auth/drive.file',
+      activeStateTokens: oauthStates.size,
+    },
+    googleDriveService: {
+      clientInitialized: Boolean(googleDriveService.driveClient),
+      rootFolderId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '(Auto-resolve "Workly")',
+    },
+    quickChecks: {
+      isGoogleDriveApiEnabled: 'Ensure Google Drive API is Enabled in Google Cloud Console under APIs & Services > Enabled APIs & services',
+      isRedirectUriMatched: `Ensure "${redirectUri}" is added under Authorized redirect URIs in Google Cloud Console`,
+      isTestUserAdded: 'If App Status is "Testing", ensure your Gmail account is added under OAuth consent screen > Test users',
+    },
+  });
+});
+
+/**
  * GET /api/google-drive/callback
  * Handles OAuth callback, validates state token, exchanges code for tokens, and persists refresh token.
  */
 app.get('/api/google-drive/callback', async (req, res) => {
-  const { code, state, error } = req.query;
+  const { code, state, error, error_description } = req.query;
+
+  console.log('[OAuth Diagnostic] /api/google-drive/callback hit:');
+  console.log(`[OAuth Diagnostic] - Has code: ${Boolean(code)} ${code ? `(length: ${code.length})` : ''}`);
+  console.log(`[OAuth Diagnostic] - Has state: ${Boolean(state)}`);
+  console.log(`[OAuth Diagnostic] - Has error: ${Boolean(error)}`);
 
   if (error) {
+    console.error(`[OAuth Diagnostic] Google returned OAuth error: [${error}] - ${error_description || 'No description'}`);
     return res.status(400).send(`
-      <div style="font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 24px; border: 1px solid #FECACA; border-radius: 12px; background: #FEF2F2;">
-        <h2 style="color: #991B1B;">Google Authorization Denied</h2>
-        <p>Google returned an authorization error: <strong>${error}</strong></p>
-        <p><a href="/api/google-drive/auth">Try again</a></p>
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 650px; margin: 40px auto; padding: 28px; border: 1px solid #FECACA; border-radius: 12px; background: #FEF2F2;">
+        <h2 style="color: #991B1B; margin-top: 0;">Google Authorization Denied: ${error}</h2>
+        <p style="color: #7F1D1D; font-size: 15px;">Google returned the following OAuth error:</p>
+        <div style="background: #FFFFFF; padding: 12px; border-radius: 6px; border: 1px solid #FCA5A5; font-family: monospace; color: #991B1B;">
+          <strong>Error Code:</strong> ${error}<br/>
+          <strong>Description:</strong> ${error_description || 'Access not granted or redirect mismatch.'}
+        </div>
+        <p style="margin-top: 20px;"><a href="/api/google-drive/auth" style="color: #F87524; font-weight: 600; text-decoration: none;">&larr; Try again</a></p>
       </div>
     `);
   }
 
-  if (!state || !validateOAuthState(state)) {
+  const isStateValid = validateOAuthState(state);
+  console.log(`[OAuth Diagnostic] - State token validation passed: ${isStateValid}`);
+
+  if (!state || !isStateValid) {
+    console.warn('[OAuth Diagnostic] OAuth state token missing or expired.');
     return res.status(400).json({
       error: 'Invalid or expired OAuth state parameter. Potential CSRF detected. Please start authorization from /api/google-drive/auth.',
     });
   }
 
   if (!code) {
+    console.warn('[OAuth Diagnostic] Authorization code missing from Google callback query.');
     return res.status(400).json({
       error: 'Missing authorization code parameter from Google.',
     });
@@ -968,6 +1045,8 @@ app.get('/api/google-drive/callback', async (req, res) => {
       process.env.GOOGLE_REDIRECT_URI ||
       `${req.protocol}://${req.get('host')}/api/google-drive/callback`;
 
+    console.log(`[OAuth Diagnostic] Exchanging code for tokens using redirectUri: ${redirectUri}`);
+
     const { google } = require('googleapis');
     const oauth2 = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
@@ -976,24 +1055,48 @@ app.get('/api/google-drive/callback', async (req, res) => {
     );
 
     const { tokens } = await oauth2.getToken(code);
+    console.log('[OAuth Diagnostic] Token exchange successfully completed:');
+    console.log(`[OAuth Diagnostic] - Has access_token: ${Boolean(tokens.access_token)}`);
+    console.log(`[OAuth Diagnostic] - Has refresh_token: ${Boolean(tokens.refresh_token)}`);
+    console.log(`[OAuth Diagnostic] - Token scope: ${tokens.scope || 'none'}`);
+    console.log(`[OAuth Diagnostic] - Token expiry: ${tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : 'unknown'}`);
 
     if (tokens.refresh_token) {
       // 1. Persist to in-memory environment, .credentials.json, and .env (completely isolated from tasks.xlsx)
       persistCredentials({ refreshToken: tokens.refresh_token });
+      console.log('[OAuth Diagnostic] Refresh token securely stored in .credentials.json and environment.');
 
       // 2. Re-initialize Google Drive service with the new refresh token
       googleDriveService.initClient(tokens.refresh_token);
 
       // 3. Automatically verify/create Workly folder hierarchy
-      googleDriveService.ensureWorklyHierarchy().catch((hErr) => {
+      googleDriveService.ensureWorklyHierarchy().then((folders) => {
+        console.log(`[OAuth Diagnostic] Google Drive Workly folder hierarchy ready: root=${folders?.rootFolderId}`);
+      }).catch((hErr) => {
         console.warn('[server] Failed to auto-initialize Workly folder hierarchy:', hErr.message);
       });
+    } else {
+      console.warn('[OAuth Diagnostic] Note: Google did not return a new refresh_token in this exchange (account may have already granted consent). Using access_token for current session.');
+      if (tokens.access_token) {
+        googleDriveService.oauth2Client = oauth2;
+        googleDriveService.driveClient = google.drive({ version: 'v3', auth: oauth2 });
+      }
+    }
+
+    // Immediately run testConnection to verify real Google Drive API request
+    let liveTest = null;
+    try {
+      liveTest = await googleDriveService.testConnection();
+      console.log(`[OAuth Diagnostic] Live Google Drive API verification: connected=${liveTest.connected}, status=${liveTest.status}`);
+    } catch (testErr) {
+      console.error('[OAuth Diagnostic] Live Google Drive API test encountered error:', testErr.message);
     }
 
     if (req.headers.accept?.includes('application/json')) {
       return res.json({
         success: true,
         message: 'Google Drive connected successfully. Refresh token stored securely.',
+        liveTest,
       });
     }
 
@@ -1003,14 +1106,14 @@ app.get('/api/google-drive/callback', async (req, res) => {
           <h2 style="color: #242052; margin: 0; font-size: 22px;">Workly &mdash; Google Drive Connected</h2>
         </div>
         <p style="color: #15803D; font-size: 15px; font-weight: 600; margin: 8px 0 16px;">
-          OAuth 2.0 authorization completed successfully!
+          &#10004; OAuth 2.0 authorization completed successfully!
         </p>
         <p style="color: #334155; font-size: 14px; line-height: 1.5;">
-          The offline refresh token has been securely stored on the Workly backend. Google Drive API v3 storage and the Workly folder structure are now fully operational.
+          ${liveTest?.connected ? 'Real Google Drive API request succeeded: Connected as ' + (liveTest.authenticatedUser || 'Authorized User') + '.' : 'The refresh token has been securely stored on the backend.'}
         </p>
         <div style="margin-top: 20px; padding: 14px; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px;">
           <p style="margin: 0; font-size: 13px; color: #475569;">
-            Verify connection status:
+            Verify live connection status:
             <br />
             <a href="/api/google-drive/test" style="color: #F87524; font-weight: 600; text-decoration: none;">/api/google-drive/test &rarr;</a>
           </p>
@@ -1018,7 +1121,7 @@ app.get('/api/google-drive/callback', async (req, res) => {
       </div>
     `);
   } catch (err) {
-    console.error('Google OAuth callback error:', err);
+    console.error('[OAuth Diagnostic] Failed to exchange authorization code:', err);
     res.status(500).send(`
       <div style="font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 24px; border: 1px solid #FECACA; border-radius: 12px; background: #FEF2F2;">
         <h2 style="color: #991B1B;">Failed to Exchange Authorization Code</h2>
