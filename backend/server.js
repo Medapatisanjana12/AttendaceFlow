@@ -52,6 +52,82 @@ if (fs.existsSync(envPath)) {
   }
 }
 
+// Secure credential storage (isolated from tasks.xlsx to prevent workbook locking)
+const CREDENTIALS_FILE = path.join(__dirname, '.credentials.json');
+
+function loadStoredCredentials() {
+  if (fs.existsSync(CREDENTIALS_FILE)) {
+    try {
+      const raw = fs.readFileSync(CREDENTIALS_FILE, 'utf8');
+      const data = JSON.parse(raw);
+      if (data.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID) {
+        process.env.GOOGLE_CLIENT_ID = data.GOOGLE_CLIENT_ID;
+      }
+      if (data.GOOGLE_CLIENT_SECRET && !process.env.GOOGLE_CLIENT_SECRET) {
+        process.env.GOOGLE_CLIENT_SECRET = data.GOOGLE_CLIENT_SECRET;
+      }
+      if (data.GOOGLE_DRIVE_ROOT_FOLDER_ID && !process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+        process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = data.GOOGLE_DRIVE_ROOT_FOLDER_ID;
+      }
+      if (data.GOOGLE_REFRESH_TOKEN && !process.env.GOOGLE_REFRESH_TOKEN) {
+        process.env.GOOGLE_REFRESH_TOKEN = data.GOOGLE_REFRESH_TOKEN;
+      }
+    } catch (err) {
+      console.warn('[server] Failed reading .credentials.json:', err.message);
+    }
+  }
+}
+loadStoredCredentials();
+
+function persistCredentials({ clientId, clientSecret, rootFolderId, refreshToken }) {
+  if (clientId) process.env.GOOGLE_CLIENT_ID = clientId;
+  if (clientSecret) process.env.GOOGLE_CLIENT_SECRET = clientSecret;
+  if (rootFolderId) process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = rootFolderId;
+  if (refreshToken) process.env.GOOGLE_REFRESH_TOKEN = refreshToken;
+
+  try {
+    let existing = {};
+    if (fs.existsSync(CREDENTIALS_FILE)) {
+      try {
+        existing = JSON.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf8'));
+      } catch (_) {}
+    }
+    const updated = {
+      ...existing,
+      ...(clientId ? { GOOGLE_CLIENT_ID: clientId } : {}),
+      ...(clientSecret ? { GOOGLE_CLIENT_SECRET: clientSecret } : {}),
+      ...(rootFolderId ? { GOOGLE_DRIVE_ROOT_FOLDER_ID: rootFolderId } : {}),
+      ...(refreshToken ? { GOOGLE_REFRESH_TOKEN: refreshToken } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(updated, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[server] Could not save .credentials.json:', err.message);
+  }
+
+  try {
+    const envFile = path.join(__dirname, '.env');
+    let envContent = '';
+    if (fs.existsSync(envFile)) {
+      envContent = fs.readFileSync(envFile, 'utf8');
+    }
+    const updateEnv = (content, key, val) => {
+      const regex = new RegExp(`^${key}=.*$`, 'm');
+      if (regex.test(content)) {
+        return content.replace(regex, `${key}=${val}`);
+      }
+      return content + (content.endsWith('\n') || !content ? '' : '\n') + `${key}=${val}\n`;
+    };
+    if (clientId) envContent = updateEnv(envContent, 'GOOGLE_CLIENT_ID', clientId);
+    if (clientSecret) envContent = updateEnv(envContent, 'GOOGLE_CLIENT_SECRET', clientSecret);
+    if (rootFolderId) envContent = updateEnv(envContent, 'GOOGLE_DRIVE_ROOT_FOLDER_ID', rootFolderId);
+    if (refreshToken) envContent = updateEnv(envContent, 'GOOGLE_REFRESH_TOKEN', refreshToken);
+    fs.writeFileSync(envFile, envContent, 'utf8');
+  } catch (err) {
+    console.warn('[server] Could not update .env file:', err.message);
+  }
+}
+
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
@@ -902,35 +978,13 @@ app.get('/api/google-drive/callback', async (req, res) => {
     const { tokens } = await oauth2.getToken(code);
 
     if (tokens.refresh_token) {
-      // 1. Update in-memory environment
-      process.env.GOOGLE_REFRESH_TOKEN = tokens.refresh_token;
+      // 1. Persist to in-memory environment, .credentials.json, and .env (completely isolated from tasks.xlsx)
+      persistCredentials({ refreshToken: tokens.refresh_token });
 
-      // 2. Persist to Excel tasks.xlsx Settings worksheet
-      await saveSetting('GOOGLE_REFRESH_TOKEN', tokens.refresh_token);
-
-      // 3. Persist to local .env if present
-      try {
-        const envPath = path.join(__dirname, '.env');
-        if (fs.existsSync(envPath)) {
-          let envContent = fs.readFileSync(envPath, 'utf8');
-          if (envContent.includes('GOOGLE_REFRESH_TOKEN=')) {
-            envContent = envContent.replace(
-              /GOOGLE_REFRESH_TOKEN=.*/g,
-              `GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}`
-            );
-          } else {
-            envContent += `\nGOOGLE_REFRESH_TOKEN=${tokens.refresh_token}\n`;
-          }
-          fs.writeFileSync(envPath, envContent, 'utf8');
-        }
-      } catch (fileErr) {
-        console.warn('[server] Could not update local .env file:', fileErr.message);
-      }
-
-      // 4. Re-initialize Google Drive service with the new refresh token
+      // 2. Re-initialize Google Drive service with the new refresh token
       googleDriveService.initClient(tokens.refresh_token);
 
-      // 5. Automatically verify/create Workly folder hierarchy
+      // 3. Automatically verify/create Workly folder hierarchy
       googleDriveService.ensureWorklyHierarchy().catch((hErr) => {
         console.warn('[server] Failed to auto-initialize Workly folder hierarchy:', hErr.message);
       });
@@ -1038,32 +1092,12 @@ app.post('/api/google-drive/configure', async (req, res) => {
       process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = cleanRootFolderId;
     }
 
-    // Persist to Excel Settings worksheet
-    await saveSetting('GOOGLE_CLIENT_ID', cleanClientId);
-    await saveSetting('GOOGLE_CLIENT_SECRET', cleanClientSecret);
-    if (cleanRootFolderId) {
-      await saveSetting('GOOGLE_DRIVE_ROOT_FOLDER_ID', cleanRootFolderId);
-    }
-
-    // Persist to local .env
-    const envFile = path.join(__dirname, '.env');
-    let envContent = '';
-    if (fs.existsSync(envFile)) {
-      envContent = fs.readFileSync(envFile, 'utf8');
-    }
-    const updateEnv = (content, key, val) => {
-      const regex = new RegExp(`^${key}=.*$`, 'm');
-      if (regex.test(content)) {
-        return content.replace(regex, `${key}=${val}`);
-      }
-      return content + (content.endsWith('\n') || !content ? '' : '\n') + `${key}=${val}\n`;
-    };
-    envContent = updateEnv(envContent, 'GOOGLE_CLIENT_ID', cleanClientId);
-    envContent = updateEnv(envContent, 'GOOGLE_CLIENT_SECRET', cleanClientSecret);
-    if (cleanRootFolderId) {
-      envContent = updateEnv(envContent, 'GOOGLE_DRIVE_ROOT_FOLDER_ID', cleanRootFolderId);
-    }
-    fs.writeFileSync(envFile, envContent, 'utf8');
+    // Persist credentials securely to process.env, .credentials.json, and .env (NO writes to tasks.xlsx)
+    persistCredentials({
+      clientId: cleanClientId,
+      clientSecret: cleanClientSecret,
+      rootFolderId: cleanRootFolderId,
+    });
 
     // Generate OAuth Authorization URL
     const redirectUri =
@@ -1109,30 +1143,34 @@ if (fs.existsSync(frontendDist)) {
 
 const PORT = process.env.PORT || 5000;
 initExcel().then(async () => {
-  // Load saved Google Drive configuration from Settings sheet
+  // 1. Load Google Drive credentials from secure storage (.credentials.json / .env)
+  loadStoredCredentials();
+
+  // 2. Backward-compatible fallback: check Settings sheet only if still missing
   try {
-    const refreshToken = await getSetting('GOOGLE_REFRESH_TOKEN');
-    if (refreshToken && !process.env.GOOGLE_REFRESH_TOKEN) {
-      process.env.GOOGLE_REFRESH_TOKEN = refreshToken;
+    if (!process.env.GOOGLE_REFRESH_TOKEN) {
+      const refreshToken = await getSetting('GOOGLE_REFRESH_TOKEN');
+      if (refreshToken) process.env.GOOGLE_REFRESH_TOKEN = refreshToken;
     }
-    const clientId = await getSetting('GOOGLE_CLIENT_ID');
-    if (clientId && !process.env.GOOGLE_CLIENT_ID) {
-      process.env.GOOGLE_CLIENT_ID = clientId;
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      const clientId = await getSetting('GOOGLE_CLIENT_ID');
+      if (clientId) process.env.GOOGLE_CLIENT_ID = clientId;
     }
-    const clientSecret = await getSetting('GOOGLE_CLIENT_SECRET');
-    if (clientSecret && !process.env.GOOGLE_CLIENT_SECRET) {
-      process.env.GOOGLE_CLIENT_SECRET = clientSecret;
+    if (!process.env.GOOGLE_CLIENT_SECRET) {
+      const clientSecret = await getSetting('GOOGLE_CLIENT_SECRET');
+      if (clientSecret) process.env.GOOGLE_CLIENT_SECRET = clientSecret;
     }
-    const rootFolderId = await getSetting('GOOGLE_DRIVE_ROOT_FOLDER_ID');
-    if (rootFolderId && !process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
-      process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = rootFolderId;
+    if (!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+      const rootFolderId = await getSetting('GOOGLE_DRIVE_ROOT_FOLDER_ID');
+      if (rootFolderId) process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = rootFolderId;
     }
+
     if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN) {
       googleDriveService.initClient();
       console.log('[server] Google Drive client initialized from stored credentials.');
     }
   } catch (err) {
-    console.warn('[server] Error loading Google settings from Excel:', err.message);
+    console.warn('[server] Error checking stored Google settings:', err.message);
   }
 
   server.listen(PORT, () => {

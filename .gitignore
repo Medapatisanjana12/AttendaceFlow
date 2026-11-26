@@ -2,6 +2,8 @@ node_modules/
 .DS_Store
 *.log
 .env
+.credentials.json
+*.tmp
 dist/
 backend/uploads/*
 !backend/uploads/.gitkeep

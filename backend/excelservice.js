@@ -2,16 +2,161 @@ const ExcelJS = require('exceljs');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
 
 const FILE_PATH = path.join(__dirname, 'tasks.xlsx');
 
-let writeQueue = Promise.resolve();
-function enqueueWrite(fn) {
-  writeQueue = writeQueue.then(fn).catch((err) => {
-    console.error('Excel Write Error:', err);
-    throw err;
+/**
+ * Re-entrant Async Mutex using Node's native AsyncLocalStorage.
+ * Ensures that all read and write operations to tasks.xlsx are serialized in strict FIFO order,
+ * while allowing re-entrant calls within the same asynchronous call hierarchy without deadlock.
+ */
+class ReentrantAsyncMutex {
+  constructor() {
+    this._queue = [];
+    this._locked = false;
+    this._storage = new AsyncLocalStorage();
+    this._currentOwner = null;
+  }
+
+  async runExclusive(fn) {
+    const currentStore = this._storage.getStore();
+    if (currentStore && currentStore === this._currentOwner) {
+      // Re-entrant call in same async execution context: proceed directly
+      return await fn();
+    }
+
+    const release = await this._acquire();
+    const token = Symbol('excel-lock-token');
+    this._currentOwner = token;
+
+    try {
+      return await this._storage.run(token, async () => {
+        return await fn();
+      });
+    } finally {
+      this._currentOwner = null;
+      release();
+    }
+  }
+
+  _acquire() {
+    return new Promise((resolve) => {
+      if (!this._locked) {
+        this._locked = true;
+        resolve(() => this._release());
+      } else {
+        this._queue.push(resolve);
+      }
+    });
+  }
+
+  _release() {
+    if (this._queue.length > 0) {
+      const next = this._queue.shift();
+      next(() => this._release());
+    } else {
+      this._locked = false;
+    }
+  }
+}
+
+const excelMutex = new ReentrantAsyncMutex();
+
+/**
+ * Wrap any Excel operation in the global mutex.
+ */
+function withExcelLock(fn) {
+  return excelMutex.runExclusive(fn);
+}
+
+/**
+ * Executes a file operation with exponential backoff retry.
+ * Handles transient Windows/OneDrive file locks (EBUSY, EPERM, EACCES, ETXTBSY, EAGAIN).
+ */
+async function withFileRetry(fn, maxRetries = 8, baseDelayMs = 120) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const isTransientLock =
+        err.code === 'EBUSY' ||
+        err.code === 'EPERM' ||
+        err.code === 'EACCES' ||
+        err.code === 'ETXTBSY' ||
+        err.code === 'EAGAIN' ||
+        (err.message &&
+          (err.message.includes('EBUSY') ||
+            err.message.includes('locked') ||
+            err.message.includes('resource busy') ||
+            err.message.includes('operation not permitted')));
+
+      if (!isTransientLock || attempt === maxRetries) {
+        throw err;
+      }
+
+      const delay = Math.round(
+        baseDelayMs * Math.pow(1.8, attempt - 1) + Math.random() * 80
+      );
+      console.warn(
+        `[excelservice] File access locked (${err.code || err.message}). Retrying attempt ${attempt}/${maxRetries} after ${delay}ms...`
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Safely reads the Excel workbook using retry logic.
+ */
+async function safeReadFile(workbook, filePath = FILE_PATH) {
+  return withFileRetry(async () => {
+    await workbook.xlsx.readFile(filePath);
+    return workbook;
   });
-  return writeQueue;
+}
+
+/**
+ * Safely writes the Excel workbook using an atomic staging file pattern and retry logic.
+ * This prevents data corruption and Windows/OneDrive sharing violations.
+ */
+async function safeWriteFile(workbook, filePath = FILE_PATH) {
+  const dir = path.dirname(filePath);
+  const tmpPath = path.join(
+    dir,
+    `.tasks_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.tmp`
+  );
+
+  try {
+    // 1. Write to temporary file with retry
+    await withFileRetry(async () => {
+      await workbook.xlsx.writeFile(tmpPath);
+    });
+
+    // 2. Atomically replace target file with retry for Windows/OneDrive locks
+    await withFileRetry(async () => {
+      try {
+        fs.renameSync(tmpPath, filePath);
+      } catch (renameErr) {
+        // Fallback: Copy and unlink if rename hits Windows destination lock
+        fs.copyFileSync(tmpPath, filePath);
+        try {
+          fs.unlinkSync(tmpPath);
+        } catch (_) {}
+      }
+    });
+  } catch (err) {
+    // Always clean up temp file on failure
+    try {
+      if (fs.existsSync(tmpPath)) {
+        fs.unlinkSync(tmpPath);
+      }
+    } catch (_) {}
+    throw err;
+  }
 }
 
 function getCellValueString(cell) {
@@ -31,7 +176,10 @@ function getCellValueString(cell) {
 
 let isInitialized = false;
 
-async function initExcel() {
+/**
+ * Internal initialization function, executed inside mutex.
+ */
+async function ensureInitializedInternal() {
   if (isInitialized && fs.existsSync(FILE_PATH)) {
     return;
   }
@@ -55,6 +203,7 @@ async function initExcel() {
       { header: 'completedAt', key: 'completedAt', width: 30 },
       { header: 'createdAt', key: 'createdAt', width: 30 },
       { header: 'adminAttachment', key: 'adminAttachment', width: 45 },
+      { header: 'adminChecked', key: 'adminChecked', width: 20 },
     ];
 
     // Sheet 2: Users
@@ -105,12 +254,12 @@ async function initExcel() {
       { header: 'Updated_At', key: 'Updated_At', width: 25 },
     ];
 
-    await workbook.xlsx.writeFile(FILE_PATH);
-    console.log('Created tasks.xlsx with Tasks, Users, and Attachments sheets');
+    await safeWriteFile(workbook);
+    console.log('[excelservice] Created tasks.xlsx with Tasks, Users, Attachments, and Settings sheets');
   } else {
     try {
       const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(FILE_PATH);
+      await safeReadFile(workbook);
       let needsSave = false;
 
       const taskSheet = workbook.getWorksheet('Tasks');
@@ -209,7 +358,6 @@ async function initExcel() {
           needsSave = true;
         }
 
-        // Schema expansion: position (Col 8), joiningDate (Col 9), contactNumber (Col 10), resume (Col 11)
         if (userSheet.getCell(1, 8).value !== 'position') {
           userSheet.getCell(1, 8).value = 'position';
           userSheet.getColumn(8).width = 28;
@@ -231,12 +379,10 @@ async function initExcel() {
           needsSave = true;
         }
 
-        // Backfill default profile fields for existing rows
         userSheet.eachRow((row, rowNumber) => {
           if (rowNumber === 1) return;
           const uRole = getCellValueString(row.getCell(5));
           const uName = getCellValueString(row.getCell(2)).toLowerCase();
-          const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
 
           if (!row.getCell(8).value) {
             if (uRole === 'admin') row.getCell(8).value = 'System Administrator';
@@ -272,7 +418,6 @@ async function initExcel() {
         });
       }
 
-      // Check / initialize Attachments sheet in existing tasks.xlsx
       let attachmentSheet = workbook.getWorksheet('Attachments');
       if (!attachmentSheet) {
         attachmentSheet = workbook.addWorksheet('Attachments');
@@ -294,7 +439,6 @@ async function initExcel() {
         needsSave = true;
       }
 
-      // Check / initialize Settings sheet in existing tasks.xlsx
       let settingsSheet = workbook.getWorksheet('Settings');
       if (!settingsSheet) {
         settingsSheet = workbook.addWorksheet('Settings');
@@ -323,64 +467,75 @@ async function initExcel() {
 
       if (needsSave) {
         await syncUserProgressSheet(workbook);
-        await workbook.xlsx.writeFile(FILE_PATH);
+        await safeWriteFile(workbook);
       }
     } catch (e) {
-      console.error('Error verifying existing tasks.xlsx header:', e);
+      console.error('[excelservice] Error verifying existing tasks.xlsx structure:', e);
     }
   }
   isInitialized = true;
+}
+
+/**
+ * Public initialization function, safe against concurrent invocations.
+ */
+async function initExcel() {
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+  });
 }
 
 // --- USER AUTH FUNCTIONS ---
 
 async function findUserByNameOrEmail(identifier) {
   if (!identifier || typeof identifier !== 'string') return null;
-  await initExcel();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
-  const sheet = workbook.getWorksheet('Users');
-  if (!sheet) return null;
-  let foundUser = null;
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+    const workbook = new ExcelJS.Workbook();
+    await safeReadFile(workbook);
+    const sheet = workbook.getWorksheet('Users');
+    if (!sheet) return null;
+    let foundUser = null;
 
-  const target = identifier.trim().toLowerCase();
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1 || foundUser) return;
-    const rowName = getCellValueString(row.getCell(2)).toLowerCase();
-    const rowEmail = getCellValueString(row.getCell(3)).toLowerCase();
-    const rowUsername = getCellValueString(row.getCell(6)).toLowerCase();
+    const target = identifier.trim().toLowerCase();
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1 || foundUser) return;
+      const rowName = getCellValueString(row.getCell(2)).toLowerCase();
+      const rowEmail = getCellValueString(row.getCell(3)).toLowerCase();
+      const rowUsername = getCellValueString(row.getCell(6)).toLowerCase();
 
-    const isMatch =
-      rowEmail === target ||
-      (rowUsername && rowUsername === target) ||
-      rowName === target ||
-      (rowName && target.length >= 3 && target.includes(rowName)) ||
-      (rowName && rowName.length >= 3 && rowName.includes(target));
+      const isMatch =
+        rowEmail === target ||
+        (rowUsername && rowUsername === target) ||
+        rowName === target ||
+        (rowName && target.length >= 3 && target.includes(rowName)) ||
+        (rowName && rowName.length >= 3 && rowName.includes(target));
 
-    if (isMatch) {
-      foundUser = {
-        id: getCellValueString(row.getCell(1)),
-        name: getCellValueString(row.getCell(2)) || 'User',
-        email: rowEmail,
-        passwordHash: getCellValueString(row.getCell(4)),
-        role: getCellValueString(row.getCell(5)) || 'user',
-        username: rowUsername || rowName.replace(/\s+/g, '_'),
-        department: getCellValueString(row.getCell(7)) || 'IT',
-        position: getCellValueString(row.getCell(8)) || 'Team Specialist',
-        joiningDate: getCellValueString(row.getCell(9)) || '',
-        contactNumber: getCellValueString(row.getCell(10)) || '',
-        resume: getCellValueString(row.getCell(11)) || '',
-      };
-    }
+      if (isMatch) {
+        foundUser = {
+          id: getCellValueString(row.getCell(1)),
+          name: getCellValueString(row.getCell(2)) || 'User',
+          email: rowEmail,
+          passwordHash: getCellValueString(row.getCell(4)),
+          role: getCellValueString(row.getCell(5)) || 'user',
+          username: rowUsername || rowName.replace(/\s+/g, '_'),
+          department: getCellValueString(row.getCell(7)) || 'IT',
+          position: getCellValueString(row.getCell(8)) || 'Team Specialist',
+          joiningDate: getCellValueString(row.getCell(9)) || '',
+          contactNumber: getCellValueString(row.getCell(10)) || '',
+          resume: getCellValueString(row.getCell(11)) || '',
+        };
+      }
+    });
+    return foundUser;
   });
-  return foundUser;
 }
 
 async function findUserByEmail(email) {
   return findUserByNameOrEmail(email);
 }
 
-function registerUser({
+async function registerUser({
   name,
   username,
   email,
@@ -392,7 +547,8 @@ function registerUser({
   contactNumber = '',
   resume = '',
 }) {
-  return enqueueWrite(async () => {
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
     const existingEmail = await findUserByNameOrEmail(email);
     if (existingEmail) {
       throw new Error('Email is already registered');
@@ -415,7 +571,7 @@ function registerUser({
     const cleanResume = (resume || '').trim();
 
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(FILE_PATH);
+    await safeReadFile(workbook);
     const sheet = workbook.getWorksheet('Users');
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -447,14 +603,14 @@ function registerUser({
     ]);
 
     await syncUserProgressSheet(workbook);
-    await workbook.xlsx.writeFile(FILE_PATH);
+    await safeWriteFile(workbook);
     return newUser;
   });
 }
 
-function updateAdminCredentials({ currentEmail, name, newEmail, currentPassword, newPassword }) {
-  return enqueueWrite(async () => {
-    await initExcel();
+async function updateAdminCredentials({ currentEmail, name, newEmail, currentPassword, newPassword }) {
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
     const user = await findUserByEmail(currentEmail);
     if (!user) {
       throw new Error('User not found');
@@ -484,7 +640,7 @@ function updateAdminCredentials({ currentEmail, name, newEmail, currentPassword,
     const nameToSave = name && name.trim() ? name.trim() : user.name;
 
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(FILE_PATH);
+    await safeReadFile(workbook);
     const userSheet = workbook.getWorksheet('Users');
 
     userSheet.eachRow((row, rowNumber) => {
@@ -508,7 +664,7 @@ function updateAdminCredentials({ currentEmail, name, newEmail, currentPassword,
       }
     }
 
-    await workbook.xlsx.writeFile(FILE_PATH);
+    await safeWriteFile(workbook);
 
     return {
       id: user.id,
@@ -522,61 +678,62 @@ function updateAdminCredentials({ currentEmail, name, newEmail, currentPassword,
 // --- TASK FUNCTIONS ---
 
 async function getAllTasks() {
-  await initExcel();
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+    const workbook = new ExcelJS.Workbook();
+    await safeReadFile(workbook);
 
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
+    const sheet = workbook.getWorksheet('Tasks');
+    const tasks = [];
+    if (!sheet) return tasks;
 
-  const sheet = workbook.getWorksheet('Tasks');
-  const tasks = [];
+    // Build a lookup map of user email -> name so legacy tasks show the User's Name
+    const userSheet = workbook.getWorksheet('Users');
+    const emailToName = {};
+    if (userSheet) {
+      userSheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const uName = getCellValueString(row.getCell(2));
+        const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
+        if (uEmail && uName) emailToName[uEmail] = uName;
+      });
+    }
 
-  // Build a lookup map of user email -> name so legacy tasks show the User's Name
-  const userSheet = workbook.getWorksheet('Users');
-  const emailToName = {};
-  if (userSheet) {
-    userSheet.eachRow((row, rowNumber) => {
+    sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      const uName = getCellValueString(row.getCell(2));
-      const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
-      if (uEmail && uName) emailToName[uEmail] = uName;
+
+      const rawAssigned = getCellValueString(row.getCell(2));
+      const assignedEmail = getCellValueString(row.getCell(9)) || (rawAssigned.includes('@') ? rawAssigned.toLowerCase() : '');
+      const displayName = emailToName[rawAssigned.toLowerCase()] || rawAssigned;
+
+      tasks.push({
+        id: getCellValueString(row.getCell(1)),
+        assignedTo: displayName,
+        title: getCellValueString(row.getCell(3)),
+        description: getCellValueString(row.getCell(4)),
+        status: getCellValueString(row.getCell(5)) || 'Pending',
+        updatedAt: getCellValueString(row.getCell(6)),
+        userNote: getCellValueString(row.getCell(7)),
+        proofAttachment: getCellValueString(row.getCell(8)),
+        assignedToEmail: assignedEmail,
+        adminFeedback: getCellValueString(row.getCell(10)),
+        deadline: getCellValueString(row.getCell(11)),
+        completedAt: getCellValueString(row.getCell(12)),
+        createdAt: getCellValueString(row.getCell(13)),
+        adminAttachment: getCellValueString(row.getCell(14)),
+        adminChecked: getCellValueString(row.getCell(15)) === 'true' || getCellValueString(row.getCell(15)) === 'Checked',
+      });
     });
-  }
 
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-
-    const rawAssigned = getCellValueString(row.getCell(2));
-    const assignedEmail = getCellValueString(row.getCell(9)) || (rawAssigned.includes('@') ? rawAssigned.toLowerCase() : '');
-    // If assignedTo is an email, convert to user name if known
-    const displayName = emailToName[rawAssigned.toLowerCase()] || rawAssigned;
-
-    tasks.push({
-      id: getCellValueString(row.getCell(1)),
-      assignedTo: displayName,
-      title: getCellValueString(row.getCell(3)),
-      description: getCellValueString(row.getCell(4)),
-      status: getCellValueString(row.getCell(5)) || 'Pending',
-      updatedAt: getCellValueString(row.getCell(6)),
-      userNote: getCellValueString(row.getCell(7)),
-      proofAttachment: getCellValueString(row.getCell(8)),
-      assignedToEmail: assignedEmail,
-      adminFeedback: getCellValueString(row.getCell(10)),
-      deadline: getCellValueString(row.getCell(11)),
-      completedAt: getCellValueString(row.getCell(12)),
-      createdAt: getCellValueString(row.getCell(13)),
-      adminAttachment: getCellValueString(row.getCell(14)),
-      adminChecked: getCellValueString(row.getCell(15)) === 'true' || getCellValueString(row.getCell(15)) === 'Checked',
-    });
+    return tasks;
   });
-
-  return tasks;
 }
 
-function addTask(taskData) {
-  return enqueueWrite(async () => {
-    await initExcel();
+async function addTask(taskData) {
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(FILE_PATH);
+    await safeReadFile(workbook);
     const sheet = workbook.getWorksheet('Tasks');
 
     // Resolve user to store the User's Display Name in assignedTo
@@ -622,16 +779,16 @@ function addTask(taskData) {
     ]);
 
     await syncUserProgressSheet(workbook);
-    await workbook.xlsx.writeFile(FILE_PATH);
+    await safeWriteFile(workbook);
     return newTask;
   });
 }
 
-function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, deadline, description, adminAttachment, adminChecked }) {
-  return enqueueWrite(async () => {
-    await initExcel();
+async function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, deadline, description, adminAttachment, adminChecked }) {
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(FILE_PATH);
+    await safeReadFile(workbook);
     const sheet = workbook.getWorksheet('Tasks');
     let updatedTask = null;
 
@@ -648,7 +805,6 @@ function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, 
               row.getCell(12).value = completedAtVal;
             }
           } else {
-            // Reopened or switched away from Completed
             completedAtVal = '';
             row.getCell(12).value = '';
           }
@@ -692,7 +848,7 @@ function updateTask(taskId, { status, userNote, proofAttachment, adminFeedback, 
 
     if (updatedTask) {
       await syncUserProgressSheet(workbook);
-      await workbook.xlsx.writeFile(FILE_PATH);
+      await safeWriteFile(workbook);
     }
     return updatedTask;
   });
@@ -791,232 +947,238 @@ async function syncUserProgressSheet(workbook) {
 }
 
 async function getAllUsers() {
-  await initExcel();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
-  const userSheet = workbook.getWorksheet('Users');
-  const users = [];
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+    const workbook = new ExcelJS.Workbook();
+    await safeReadFile(workbook);
+    const userSheet = workbook.getWorksheet('Users');
+    const users = [];
 
-  if (userSheet) {
-    userSheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return;
-      const uName = getCellValueString(row.getCell(2)) || 'Team Member';
-      const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
-      const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
-      const uRole = getCellValueString(row.getCell(5)) || 'user';
-      const uDept = getCellValueString(row.getCell(7)) || (uRole === 'admin' ? 'Management' : 'IT');
-      const uPos = getCellValueString(row.getCell(8)) || (uRole === 'admin' ? 'System Administrator' : 'Associate Specialist');
-      const uJoiningDate = getCellValueString(row.getCell(9)) || '';
-      const uContact = getCellValueString(row.getCell(10)) || '';
-      const uResume = getCellValueString(row.getCell(11)) || '';
+    if (userSheet) {
+      userSheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const uName = getCellValueString(row.getCell(2)) || 'Team Member';
+        const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
+        const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
+        const uRole = getCellValueString(row.getCell(5)) || 'user';
+        const uDept = getCellValueString(row.getCell(7)) || (uRole === 'admin' ? 'Management' : 'IT');
+        const uPos = getCellValueString(row.getCell(8)) || (uRole === 'admin' ? 'System Administrator' : 'Associate Specialist');
+        const uJoiningDate = getCellValueString(row.getCell(9)) || '';
+        const uContact = getCellValueString(row.getCell(10)) || '';
+        const uResume = getCellValueString(row.getCell(11)) || '';
 
-      users.push({
-        id: getCellValueString(row.getCell(1)),
-        name: uName,
-        username: uUsername,
-        email: uEmail,
-        role: uRole,
-        department: uDept,
-        position: uPos,
-        joiningDate: uJoiningDate,
-        contactNumber: uContact,
-        resume: uResume,
+        users.push({
+          id: getCellValueString(row.getCell(1)),
+          name: uName,
+          username: uUsername,
+          email: uEmail,
+          role: uRole,
+          department: uDept,
+          position: uPos,
+          joiningDate: uJoiningDate,
+          contactNumber: uContact,
+          resume: uResume,
+        });
       });
-    });
-  }
-  return users;
+    }
+    return users;
+  });
 }
 
 async function getUserProgressModules() {
-  await initExcel();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+    const workbook = new ExcelJS.Workbook();
+    await safeReadFile(workbook);
 
-  const users = [];
-  const userSheet = workbook.getWorksheet('Users');
-  if (userSheet) {
-    userSheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return;
-      const uName = getCellValueString(row.getCell(2)) || 'Team Member';
-      const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
-      const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
-      const uRole = getCellValueString(row.getCell(5)) || 'user';
-      const uDept = getCellValueString(row.getCell(7)) || (uRole === 'admin' ? 'Management' : 'IT');
-      const uPos = getCellValueString(row.getCell(8)) || (uRole === 'admin' ? 'System Administrator' : 'Associate Specialist');
-      const uJoiningDate = getCellValueString(row.getCell(9)) || '';
-      const uContact = getCellValueString(row.getCell(10)) || '';
-      const uResume = getCellValueString(row.getCell(11)) || '';
+    const users = [];
+    const userSheet = workbook.getWorksheet('Users');
+    if (userSheet) {
+      userSheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const uName = getCellValueString(row.getCell(2)) || 'Team Member';
+        const uEmail = getCellValueString(row.getCell(3)).toLowerCase();
+        const uUsername = getCellValueString(row.getCell(6)) || uName.toLowerCase().replace(/\s+/g, '_');
+        const uRole = getCellValueString(row.getCell(5)) || 'user';
+        const uDept = getCellValueString(row.getCell(7)) || (uRole === 'admin' ? 'Management' : 'IT');
+        const uPos = getCellValueString(row.getCell(8)) || (uRole === 'admin' ? 'System Administrator' : 'Associate Specialist');
+        const uJoiningDate = getCellValueString(row.getCell(9)) || '';
+        const uContact = getCellValueString(row.getCell(10)) || '';
+        const uResume = getCellValueString(row.getCell(11)) || '';
 
-      users.push({
-        id: getCellValueString(row.getCell(1)),
-        name: uName,
-        username: uUsername,
-        email: uEmail,
-        role: uRole,
-        department: uDept,
-        position: uPos,
-        joiningDate: uJoiningDate,
-        contactNumber: uContact,
-        resume: uResume,
-      });
-    });
-  }
-
-  const tasks = await getAllTasks();
-
-  const knownIdentifiers = new Set(users.map((u) => u.email).concat(users.map((u) => u.name.toLowerCase())));
-  tasks.forEach((t) => {
-    const rawAssigned = (t.assignedTo || '').trim();
-    if (rawAssigned && !knownIdentifiers.has(rawAssigned.toLowerCase())) {
-      knownIdentifiers.add(rawAssigned.toLowerCase());
-      const isEmail = rawAssigned.includes('@');
-      const fallbackName = isEmail ? rawAssigned.split('@')[0] : rawAssigned;
-      const fallbackEmail = t.assignedToEmail || (isEmail ? rawAssigned.toLowerCase() : `${rawAssigned.toLowerCase().replace(/\s+/g, '')}@company.com`);
-      users.push({
-        id: `unreg-${rawAssigned}`,
-        name: fallbackName,
-        username: fallbackName.toLowerCase().replace(/\s+/g, '_'),
-        email: fallbackEmail,
-        role: 'user',
-        department: 'IT',
+        users.push({
+          id: getCellValueString(row.getCell(1)),
+          name: uName,
+          username: uUsername,
+          email: uEmail,
+          role: uRole,
+          department: uDept,
+          position: uPos,
+          joiningDate: uJoiningDate,
+          contactNumber: uContact,
+          resume: uResume,
+        });
       });
     }
-  });
 
-  const memberUsers = users.filter((u) => u.role !== 'admin');
+    const tasks = await getAllTasks();
 
-  return memberUsers.map((user) => {
-    const uEmail = (user.email || '').toLowerCase();
-    const uName = (user.name || '').toLowerCase();
-    const uUsername = (user.username || '').toLowerCase();
-
-    const userTasks = tasks.filter((t) => {
-      const assigned = (t.assignedTo || '').toLowerCase();
-      const assignedEmail = (t.assignedToEmail || '').toLowerCase();
-      return (
-        assigned === uName ||
-        assigned === uEmail ||
-        (uUsername && assigned === uUsername) ||
-        (assignedEmail && assignedEmail === uEmail)
-      );
+    const knownIdentifiers = new Set(users.map((u) => u.email).concat(users.map((u) => u.name.toLowerCase())));
+    tasks.forEach((t) => {
+      const rawAssigned = (t.assignedTo || '').trim();
+      if (rawAssigned && !knownIdentifiers.has(rawAssigned.toLowerCase())) {
+        knownIdentifiers.add(rawAssigned.toLowerCase());
+        const isEmail = rawAssigned.includes('@');
+        const fallbackName = isEmail ? rawAssigned.split('@')[0] : rawAssigned;
+        const fallbackEmail = t.assignedToEmail || (isEmail ? rawAssigned.toLowerCase() : `${rawAssigned.toLowerCase().replace(/\s+/g, '')}@company.com`);
+        users.push({
+          id: `unreg-${rawAssigned}`,
+          name: fallbackName,
+          username: fallbackName.toLowerCase().replace(/\s+/g, '_'),
+          email: fallbackEmail,
+          role: 'user',
+          department: 'IT',
+        });
+      }
     });
 
-    const totalAssigned = userTasks.length;
-    const completedTasks = userTasks.filter((t) => t.status === 'Completed');
-    const inProgressTasks = userTasks.filter((t) => t.status === 'In Progress');
-    const incompleteTasks = userTasks.filter((t) => (t.status || 'Pending') === 'Pending');
-    const progressPercent = totalAssigned > 0 ? Math.round((completedTasks.length / totalAssigned) * 100) : 0;
+    const memberUsers = users.filter((u) => u.role !== 'admin');
 
-    const tasksWithNotes = userTasks.filter((t) => t.userNote && t.userNote.trim());
-    const latestNoteTask = tasksWithNotes.length > 0 ? tasksWithNotes[tasksWithNotes.length - 1] : null;
-    const proofsCount = userTasks.filter((t) => t.proofAttachment && t.proofAttachment.trim()).length;
-    const tasksWithFeedback = userTasks.filter((t) => t.adminFeedback && t.adminFeedback.trim());
-    const latestFeedbackTask = tasksWithFeedback.length > 0 ? tasksWithFeedback[tasksWithFeedback.length - 1] : null;
+    return memberUsers.map((user) => {
+      const uEmail = (user.email || '').toLowerCase();
+      const uName = (user.name || '').toLowerCase();
+      const uUsername = (user.username || '').toLowerCase();
 
-    return {
-      userId: user.id,
-      name: user.name,
-      username: user.username,
-      email: user.email,
-      department: user.department || 'IT',
-      position: user.position || 'Associate Specialist',
-      joiningDate: user.joiningDate || '',
-      contactNumber: user.contactNumber || '',
-      resume: user.resume || '',
-      totalAssigned,
-      completedCount: completedTasks.length,
-      inProgressCount: inProgressTasks.length,
-      incompleteCount: incompleteTasks.length,
-      progressPercent,
-      proofsCount,
-      feedbacksCount: tasksWithFeedback.length,
-      latestFeedback: latestFeedbackTask ? latestFeedbackTask.adminFeedback : '',
-      latestFeedbackTaskTitle: latestFeedbackTask ? latestFeedbackTask.title : '',
-      latestNote: latestNoteTask ? latestNoteTask.userNote : '',
-      latestNoteTaskTitle: latestNoteTask ? latestNoteTask.title : '',
-      latestNoteDate: latestNoteTask ? latestNoteTask.updatedAt : '',
-      latestProof: latestNoteTask ? latestNoteTask.proofAttachment : '',
-      tasks: userTasks,
-    };
+      const userTasks = tasks.filter((t) => {
+        const assigned = (t.assignedTo || '').toLowerCase();
+        const assignedEmail = (t.assignedToEmail || '').toLowerCase();
+        return (
+          assigned === uName ||
+          assigned === uEmail ||
+          (uUsername && assigned === uUsername) ||
+          (assignedEmail && assignedEmail === uEmail)
+        );
+      });
+
+      const totalAssigned = userTasks.length;
+      const completedTasks = userTasks.filter((t) => t.status === 'Completed');
+      const inProgressTasks = userTasks.filter((t) => t.status === 'In Progress');
+      const incompleteTasks = userTasks.filter((t) => (t.status || 'Pending') === 'Pending');
+      const progressPercent = totalAssigned > 0 ? Math.round((completedTasks.length / totalAssigned) * 100) : 0;
+
+      const tasksWithNotes = userTasks.filter((t) => t.userNote && t.userNote.trim());
+      const latestNoteTask = tasksWithNotes.length > 0 ? tasksWithNotes[tasksWithNotes.length - 1] : null;
+      const proofsCount = userTasks.filter((t) => t.proofAttachment && t.proofAttachment.trim()).length;
+      const tasksWithFeedback = userTasks.filter((t) => t.adminFeedback && t.adminFeedback.trim());
+      const latestFeedbackTask = tasksWithFeedback.length > 0 ? tasksWithFeedback[tasksWithFeedback.length - 1] : null;
+
+      return {
+        userId: user.id,
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        department: user.department || 'IT',
+        position: user.position || 'Associate Specialist',
+        joiningDate: user.joiningDate || '',
+        contactNumber: user.contactNumber || '',
+        resume: user.resume || '',
+        totalAssigned,
+        completedCount: completedTasks.length,
+        inProgressCount: inProgressTasks.length,
+        incompleteCount: incompleteTasks.length,
+        progressPercent,
+        proofsCount,
+        feedbacksCount: tasksWithFeedback.length,
+        latestFeedback: latestFeedbackTask ? latestFeedbackTask.adminFeedback : '',
+        latestFeedbackTaskTitle: latestFeedbackTask ? latestFeedbackTask.title : '',
+        latestNote: latestNoteTask ? latestNoteTask.userNote : '',
+        latestNoteTaskTitle: latestNoteTask ? latestNoteTask.title : '',
+        latestNoteDate: latestNoteTask ? latestNoteTask.updatedAt : '',
+        latestProof: latestNoteTask ? latestNoteTask.proofAttachment : '',
+        tasks: userTasks,
+      };
+    });
   });
 }
 
 async function getAttendanceLogs() {
-  const users = await getAllUsers();
-  const tasks = await getAllTasks();
-  const members = users.filter((u) => u.role !== 'admin');
+  return withExcelLock(async () => {
+    const users = await getAllUsers();
+    const tasks = await getAllTasks();
+    const members = users.filter((u) => u.role !== 'admin');
 
-  return members.map((u, idx) => {
-    const userTasks = tasks.filter((t) => {
-      const assigned = (t.assignedTo || '').toLowerCase();
-      const assignedEmail = (t.assignedToEmail || '').toLowerCase();
-      return (
-        assigned === u.name.toLowerCase() ||
-        assigned === u.email.toLowerCase() ||
-        assigned === u.username.toLowerCase() ||
-        assignedEmail === u.email.toLowerCase()
-      );
+    return members.map((u, idx) => {
+      const userTasks = tasks.filter((t) => {
+        const assigned = (t.assignedTo || '').toLowerCase();
+        const assignedEmail = (t.assignedToEmail || '').toLowerCase();
+        return (
+          assigned === u.name.toLowerCase() ||
+          assigned === u.email.toLowerCase() ||
+          assigned === u.username.toLowerCase() ||
+          assignedEmail === u.email.toLowerCase()
+        );
+      });
+
+      const total = userTasks.length;
+      const completed = userTasks.filter((t) => t.status === 'Completed').length;
+      const inProgress = userTasks.filter((t) => t.status === 'In Progress').length;
+      const onTime = userTasks.filter((t) => {
+        if (t.status !== 'Completed') return false;
+        if (!t.deadline) return true;
+        const comp = t.completedAt ? new Date(t.completedAt).getTime() : new Date(t.updatedAt).getTime();
+        return comp <= new Date(t.deadline).getTime();
+      }).length;
+
+      const rate = total > 0 ? Math.round((completed / total) * 100) : 100;
+      const onTimePct = completed > 0 ? Math.round((onTime / completed) * 100) : 100;
+
+      let performanceTier = 'Excellent';
+      let stars = '⭐⭐⭐⭐⭐';
+      if (rate >= 90 && onTimePct >= 85) {
+        performanceTier = 'Outstanding';
+        stars = '⭐⭐⭐⭐⭐';
+      } else if (rate >= 70) {
+        performanceTier = 'Good';
+        stars = '⭐⭐⭐⭐';
+      } else if (rate >= 50) {
+        performanceTier = 'Average';
+        stars = '⭐⭐⭐';
+      } else {
+        performanceTier = 'Needs Focus';
+        stars = '⭐⭐';
+      }
+
+      let workStatus = 'Active on Task';
+      if (inProgress > 0) workStatus = 'Working on Task';
+      else if (completed === total && total > 0) workStatus = 'Day Completed';
+      else if (total === 0) workStatus = 'Ready for Work';
+
+      const checkInTimes = ['08:45 AM', '09:00 AM', '09:15 AM', '08:50 AM', '09:05 AM'];
+      const checkIn = checkInTimes[idx % checkInTimes.length];
+
+      return {
+        userId: u.id,
+        name: u.name,
+        username: u.username,
+        email: u.email,
+        department: u.department || 'IT',
+        position: u.position || 'Associate Specialist',
+        joiningDate: u.joiningDate || '',
+        contactNumber: u.contactNumber || '',
+        resume: u.resume || '',
+        attendanceStatus: 'Present',
+        checkInTime: `${checkIn} Today`,
+        workStatus,
+        totalAssigned: total,
+        completedCount: completed,
+        inProgressCount: inProgress,
+        completionRate: rate,
+        onTimeRate: onTimePct,
+        performanceTier,
+        stars,
+        lastActive: userTasks[userTasks.length - 1]?.updatedAt || 'Recently active',
+      };
     });
-
-    const total = userTasks.length;
-    const completed = userTasks.filter((t) => t.status === 'Completed').length;
-    const inProgress = userTasks.filter((t) => t.status === 'In Progress').length;
-    const onTime = userTasks.filter((t) => {
-      if (t.status !== 'Completed') return false;
-      if (!t.deadline) return true;
-      const comp = t.completedAt ? new Date(t.completedAt).getTime() : new Date(t.updatedAt).getTime();
-      return comp <= new Date(t.deadline).getTime();
-    }).length;
-
-    const rate = total > 0 ? Math.round((completed / total) * 100) : 100;
-    const onTimePct = completed > 0 ? Math.round((onTime / completed) * 100) : 100;
-
-    let performanceTier = 'Excellent';
-    let stars = '⭐⭐⭐⭐⭐';
-    if (rate >= 90 && onTimePct >= 85) {
-      performanceTier = 'Outstanding';
-      stars = '⭐⭐⭐⭐⭐';
-    } else if (rate >= 70) {
-      performanceTier = 'Good';
-      stars = '⭐⭐⭐⭐';
-    } else if (rate >= 50) {
-      performanceTier = 'Average';
-      stars = '⭐⭐⭐';
-    } else {
-      performanceTier = 'Needs Focus';
-      stars = '⭐⭐';
-    }
-
-    let workStatus = 'Active on Task';
-    if (inProgress > 0) workStatus = 'Working on Task';
-    else if (completed === total && total > 0) workStatus = 'Day Completed';
-    else if (total === 0) workStatus = 'Ready for Work';
-
-    const checkInTimes = ['08:45 AM', '09:00 AM', '09:15 AM', '08:50 AM', '09:05 AM'];
-    const checkIn = checkInTimes[idx % checkInTimes.length];
-
-    return {
-      userId: u.id,
-      name: u.name,
-      username: u.username,
-      email: u.email,
-      department: u.department || 'IT',
-      position: u.position || 'Associate Specialist',
-      joiningDate: u.joiningDate || '',
-      contactNumber: u.contactNumber || '',
-      resume: u.resume || '',
-      attendanceStatus: 'Present',
-      checkInTime: `${checkIn} Today`,
-      workStatus,
-      totalAssigned: total,
-      completedCount: completed,
-      inProgressCount: inProgress,
-      completionRate: rate,
-      onTimeRate: onTimePct,
-      performanceTier,
-      stars,
-      lastActive: userTasks[userTasks.length - 1]?.updatedAt || 'Recently active',
-    };
   });
 }
 
@@ -1035,10 +1197,10 @@ async function addAttachmentRecord({
   googleDriveFolderId,
   description = '',
 }) {
-  await initExcel();
-  return enqueueWrite(async () => {
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(FILE_PATH);
+    await safeReadFile(workbook);
     let attachmentSheet = workbook.getWorksheet('Attachments');
     if (!attachmentSheet) {
       attachmentSheet = workbook.addWorksheet('Attachments');
@@ -1079,7 +1241,7 @@ async function addAttachmentRecord({
     ];
 
     attachmentSheet.addRow(row);
-    await workbook.xlsx.writeFile(FILE_PATH);
+    await safeWriteFile(workbook);
 
     return {
       attachmentId,
@@ -1101,84 +1263,88 @@ async function addAttachmentRecord({
 
 async function getAttachmentsByTaskId(taskId) {
   if (!taskId) return [];
-  await initExcel();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
-  const attachmentSheet = workbook.getWorksheet('Attachments');
-  if (!attachmentSheet) return [];
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+    const workbook = new ExcelJS.Workbook();
+    await safeReadFile(workbook);
+    const attachmentSheet = workbook.getWorksheet('Attachments');
+    if (!attachmentSheet) return [];
 
-  const attachments = [];
-  const targetId = String(taskId).trim();
+    const attachments = [];
+    const targetId = String(taskId).trim();
 
-  attachmentSheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const rowTaskId = getCellValueString(row.getCell(2));
-    if (rowTaskId === targetId) {
-      attachments.push({
-        id: getCellValueString(row.getCell(1)),
-        attachmentId: getCellValueString(row.getCell(1)),
-        taskId: rowTaskId,
-        fileName: getCellValueString(row.getCell(3)),
-        originalFileName: getCellValueString(row.getCell(4)),
-        fileType: getCellValueString(row.getCell(5)),
-        fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
-        uploadedBy: getCellValueString(row.getCell(7)),
-        uploadedRole: getCellValueString(row.getCell(8)),
-        uploadDirection: getCellValueString(row.getCell(9)),
-        googleDriveFileId: getCellValueString(row.getCell(10)),
-        googleDriveFolderId: getCellValueString(row.getCell(11)),
-        createdAt: getCellValueString(row.getCell(12)),
-        uploadedDate: getCellValueString(row.getCell(12)),
-        description: getCellValueString(row.getCell(13)),
-      });
-    }
+    attachmentSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const rowTaskId = getCellValueString(row.getCell(2));
+      if (rowTaskId === targetId) {
+        attachments.push({
+          id: getCellValueString(row.getCell(1)),
+          attachmentId: getCellValueString(row.getCell(1)),
+          taskId: rowTaskId,
+          fileName: getCellValueString(row.getCell(3)),
+          originalFileName: getCellValueString(row.getCell(4)),
+          fileType: getCellValueString(row.getCell(5)),
+          fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
+          uploadedBy: getCellValueString(row.getCell(7)),
+          uploadedRole: getCellValueString(row.getCell(8)),
+          uploadDirection: getCellValueString(row.getCell(9)),
+          googleDriveFileId: getCellValueString(row.getCell(10)),
+          googleDriveFolderId: getCellValueString(row.getCell(11)),
+          createdAt: getCellValueString(row.getCell(12)),
+          uploadedDate: getCellValueString(row.getCell(12)),
+          description: getCellValueString(row.getCell(13)),
+        });
+      }
+    });
+
+    return attachments;
   });
-
-  return attachments;
 }
 
 async function getAttachmentById(attachmentId) {
   if (!attachmentId) return null;
-  await initExcel();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
-  const attachmentSheet = workbook.getWorksheet('Attachments');
-  if (!attachmentSheet) return null;
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+    const workbook = new ExcelJS.Workbook();
+    await safeReadFile(workbook);
+    const attachmentSheet = workbook.getWorksheet('Attachments');
+    if (!attachmentSheet) return null;
 
-  const targetId = String(attachmentId).trim();
-  let found = null;
+    const targetId = String(attachmentId).trim();
+    let found = null;
 
-  attachmentSheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1 || found) return;
-    const id = getCellValueString(row.getCell(1));
-    if (id === targetId) {
-      found = {
-        attachmentId: id,
-        taskId: getCellValueString(row.getCell(2)),
-        fileName: getCellValueString(row.getCell(3)),
-        originalFileName: getCellValueString(row.getCell(4)),
-        fileType: getCellValueString(row.getCell(5)),
-        fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
-        uploadedBy: getCellValueString(row.getCell(7)),
-        uploadedRole: getCellValueString(row.getCell(8)),
-        uploadDirection: getCellValueString(row.getCell(9)),
-        googleDriveFileId: getCellValueString(row.getCell(10)),
-        googleDriveFolderId: getCellValueString(row.getCell(11)),
-        uploadedDate: getCellValueString(row.getCell(12)),
-        description: getCellValueString(row.getCell(13)),
-      };
-    }
+    attachmentSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1 || found) return;
+      const id = getCellValueString(row.getCell(1));
+      if (id === targetId) {
+        found = {
+          attachmentId: id,
+          taskId: getCellValueString(row.getCell(2)),
+          fileName: getCellValueString(row.getCell(3)),
+          originalFileName: getCellValueString(row.getCell(4)),
+          fileType: getCellValueString(row.getCell(5)),
+          fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
+          uploadedBy: getCellValueString(row.getCell(7)),
+          uploadedRole: getCellValueString(row.getCell(8)),
+          uploadDirection: getCellValueString(row.getCell(9)),
+          googleDriveFileId: getCellValueString(row.getCell(10)),
+          googleDriveFolderId: getCellValueString(row.getCell(11)),
+          uploadedDate: getCellValueString(row.getCell(12)),
+          description: getCellValueString(row.getCell(13)),
+        };
+      }
+    });
+
+    return found;
   });
-
-  return found;
 }
 
 async function deleteAttachmentRecord(attachmentId) {
   if (!attachmentId) return false;
-  await initExcel();
-  return enqueueWrite(async () => {
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(FILE_PATH);
+    await safeReadFile(workbook);
     const attachmentSheet = workbook.getWorksheet('Attachments');
     if (!attachmentSheet) return false;
 
@@ -1196,66 +1362,70 @@ async function deleteAttachmentRecord(attachmentId) {
     if (!rowToDelete) return false;
 
     attachmentSheet.spliceRows(rowToDelete, 1);
-    await workbook.xlsx.writeFile(FILE_PATH);
+    await safeWriteFile(workbook);
     return true;
   });
 }
 
 async function getAllAttachments() {
-  await initExcel();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
-  const attachmentSheet = workbook.getWorksheet('Attachments');
-  if (!attachmentSheet) return [];
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+    const workbook = new ExcelJS.Workbook();
+    await safeReadFile(workbook);
+    const attachmentSheet = workbook.getWorksheet('Attachments');
+    if (!attachmentSheet) return [];
 
-  const attachments = [];
-  attachmentSheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    attachments.push({
-      id: getCellValueString(row.getCell(1)),
-      attachmentId: getCellValueString(row.getCell(1)),
-      taskId: getCellValueString(row.getCell(2)),
-      fileName: getCellValueString(row.getCell(3)),
-      originalFileName: getCellValueString(row.getCell(4)),
-      fileType: getCellValueString(row.getCell(5)),
-      fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
-      uploadedBy: getCellValueString(row.getCell(7)),
-      uploadedRole: getCellValueString(row.getCell(8)),
-      uploadDirection: getCellValueString(row.getCell(9)),
-      googleDriveFileId: getCellValueString(row.getCell(10)),
-      googleDriveFolderId: getCellValueString(row.getCell(11)),
-      createdAt: getCellValueString(row.getCell(12)),
-      uploadedDate: getCellValueString(row.getCell(12)),
-      description: getCellValueString(row.getCell(13)),
+    const attachments = [];
+    attachmentSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      attachments.push({
+        id: getCellValueString(row.getCell(1)),
+        attachmentId: getCellValueString(row.getCell(1)),
+        taskId: getCellValueString(row.getCell(2)),
+        fileName: getCellValueString(row.getCell(3)),
+        originalFileName: getCellValueString(row.getCell(4)),
+        fileType: getCellValueString(row.getCell(5)),
+        fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
+        uploadedBy: getCellValueString(row.getCell(7)),
+        uploadedRole: getCellValueString(row.getCell(8)),
+        uploadDirection: getCellValueString(row.getCell(9)),
+        googleDriveFileId: getCellValueString(row.getCell(10)),
+        googleDriveFolderId: getCellValueString(row.getCell(11)),
+        createdAt: getCellValueString(row.getCell(12)),
+        uploadedDate: getCellValueString(row.getCell(12)),
+        description: getCellValueString(row.getCell(13)),
+      });
     });
-  });
 
-  return attachments;
+    return attachments;
+  });
 }
 
 async function getSetting(key) {
   if (!key) return null;
-  await initExcel();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
-  const sheet = workbook.getWorksheet('Settings');
-  if (!sheet) return null;
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
+    const workbook = new ExcelJS.Workbook();
+    await safeReadFile(workbook);
+    const sheet = workbook.getWorksheet('Settings');
+    if (!sheet) return null;
 
-  let result = null;
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber > 1 && getCellValueString(row.getCell(1)) === key) {
-      result = getCellValueString(row.getCell(2));
-    }
+    let result = null;
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1 && getCellValueString(row.getCell(1)) === key) {
+        result = getCellValueString(row.getCell(2));
+      }
+    });
+    return result;
   });
-  return result;
 }
 
-function saveSetting(key, value) {
-  return enqueueWrite(async () => {
-    if (!key) return null;
-    await initExcel();
+async function saveSetting(key, value) {
+  if (!key) return null;
+  return withExcelLock(async () => {
+    await ensureInitializedInternal();
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(FILE_PATH);
+    await safeReadFile(workbook);
     let sheet = workbook.getWorksheet('Settings');
     if (!sheet) {
       sheet = workbook.addWorksheet('Settings');
@@ -1281,7 +1451,7 @@ function saveSetting(key, value) {
       sheet.addRow([key, String(value), nowIso]);
     }
 
-    await workbook.xlsx.writeFile(FILE_PATH);
+    await safeWriteFile(workbook);
     return { key, value };
   });
 }
