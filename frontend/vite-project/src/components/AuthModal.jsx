@@ -2,8 +2,14 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../config';
 
-export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onLoginSuccess }) {
-  const [loginPortal, setLoginPortal] = useState(initialPortal);
+export default function AuthModal({
+  isOpen,
+  onClose,
+  initialPortal = 'user',
+  adminOnly = false,
+  onLoginSuccess,
+}) {
+  const [loginPortal, setLoginPortal] = useState(adminOnly ? 'admin' : initialPortal);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
 
   const [name, setName] = useState('');
@@ -14,15 +20,19 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
   const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sync portal when initialPortal changes
+  // Sync portal when initialPortal or adminOnly changes
   useEffect(() => {
     if (isOpen) {
-      setLoginPortal(initialPortal);
+      setLoginPortal(adminOnly ? 'admin' : initialPortal);
       setIsRegisterMode(false);
       setError('');
       setSuccessMsg('');
+      setName('');
+      setUsername('');
+      setEmail('');
+      setPassword('');
     }
-  }, [isOpen, initialPortal]);
+  }, [isOpen, initialPortal, adminOnly]);
 
   // Keyboard escape listener to close modal
   useEffect(() => {
@@ -49,17 +59,6 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
 
   if (!isOpen) return null;
 
-  const switchPortal = (portal) => {
-    setLoginPortal(portal);
-    setIsRegisterMode(false);
-    setError('');
-    setSuccessMsg('');
-    setName('');
-    setUsername('');
-    setEmail('');
-    setPassword('');
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -67,7 +66,7 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
     setIsSubmitting(true);
 
     try {
-      if (isRegisterMode && loginPortal === 'user') {
+      if (!adminOnly && isRegisterMode && loginPortal === 'user') {
         await axios.post(`${API_BASE_URL}/register`, {
           name,
           username,
@@ -79,16 +78,17 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
         setPassword('');
         setUsername('');
       } else {
+        const targetPortal = adminOnly ? 'admin' : loginPortal;
         const res = await axios.post(`${API_BASE_URL}/login`, {
           email: email.trim(),
           password,
         });
 
-        if (res.data.role !== loginPortal) {
+        if (res.data.role !== targetPortal) {
           setError(
-            loginPortal === 'admin'
-              ? 'Access denied: This account is registered as a Team Member. Please switch to the Team Member portal.'
-              : 'Access denied: This is an Admin account. Please switch to the Admin Portal tab.'
+            targetPortal === 'admin'
+              ? 'Access denied: This account is registered as a Team Member. Please use the Get Started portal.'
+              : 'Access denied: This is an Admin account. Please use the Admin Portal.'
           );
           setIsSubmitting(false);
           return;
@@ -139,30 +139,12 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
             <span className="auth-modal-brand-name">Workly</span>
           </div>
           <span className="auth-modal-badge">
-            {loginPortal === 'admin' ? 'Administrator Portal' : 'Member Workspace'}
+            {adminOnly ? 'Administrator Portal' : 'Member Workspace'}
           </span>
         </div>
 
-        {/* Portal Switcher Tabs */}
-        <div className="portal-selector auth-modal-portals">
-          <button
-            type="button"
-            className={loginPortal === 'user' ? 'portal-btn active' : 'portal-btn'}
-            onClick={() => switchPortal('user')}
-          >
-            User Login
-          </button>
-          <button
-            type="button"
-            className={loginPortal === 'admin' ? 'portal-btn active-admin' : 'portal-btn'}
-            onClick={() => switchPortal('admin')}
-          >
-            Admin Login
-          </button>
-        </div>
-
-        {/* User Sign In / Create Account Sub-tabs */}
-        {loginPortal === 'user' && (
+        {/* User Sign In / Create Account Sub-tabs (Only in Member Mode) */}
+        {!adminOnly && (
           <div className="auth-tabs auth-modal-subtabs">
             <button
               type="button"
@@ -189,18 +171,18 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
 
         <div className="auth-modal-title-group">
           <h2>
-            {loginPortal === 'admin'
+            {adminOnly
               ? 'Administrator Sign In'
               : isRegisterMode
               ? 'Create Member Account'
               : 'Team Member Sign In'}
           </h2>
           <p className="subtitle">
-            {loginPortal === 'admin'
-              ? 'Sign in to assign deliverables and manage department operations'
+            {adminOnly
+              ? 'Sign in with administrative credentials to manage department operations'
               : isRegisterMode
               ? 'Register with your team handle to view and update assignments'
-              : 'Enter your credentials to access your task dashboard'}
+              : 'Enter your credentials to access your assigned tasks'}
           </p>
         </div>
 
@@ -208,7 +190,7 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
         {successMsg && <div className="alert success">{successMsg}</div>}
 
         <form onSubmit={handleSubmit} className="auth-form auth-modal-form">
-          {isRegisterMode && loginPortal === 'user' && (
+          {!adminOnly && isRegisterMode && (
             <>
               <div className="input-group">
                 <label>Full Name</label>
@@ -235,11 +217,11 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
           )}
 
           <div className="input-group">
-            <label>{loginPortal === 'admin' ? 'Admin Email' : 'Work Email or Username'}</label>
+            <label>{adminOnly ? 'Admin Email' : 'Work Email or Username'}</label>
             <input
-              type={loginPortal === 'admin' ? 'email' : 'text'}
+              type={adminOnly ? 'email' : 'text'}
               placeholder={
-                loginPortal === 'admin' ? 'admin@company.com' : 'jessica or jessica12@gmail.com'
+                adminOnly ? 'admin@company.com' : 'jessica or jessica12@gmail.com'
               }
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -262,14 +244,14 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
             type="submit"
             disabled={isSubmitting}
             className={
-              loginPortal === 'admin'
+              adminOnly
                 ? 'btn-admin full-width auth-modal-submit'
                 : 'btn-primary full-width auth-modal-submit'
             }
           >
             {isSubmitting
               ? 'Authenticating...'
-              : loginPortal === 'admin'
+              : adminOnly
               ? 'Sign In as Admin'
               : isRegisterMode
               ? 'Create Account'
@@ -277,7 +259,7 @@ export default function AuthModal({ isOpen, onClose, initialPortal = 'user', onL
           </button>
         </form>
 
-        {loginPortal === 'admin' ? (
+        {adminOnly ? (
           <div className="demo-hint auth-modal-hint">
             <span>Demo Admin:</span> <strong>admin@company.com</strong> / <strong>admin123</strong>
           </div>

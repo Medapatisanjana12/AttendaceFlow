@@ -36,33 +36,20 @@ export default function LandingPage({ onOpenAuth }) {
             <button type="button" onClick={() => scrollToSection('workflow')} className="saas-nav-link">
               How It Works
             </button>
-            <button type="button" onClick={() => scrollToSection('sync-engine')} className="saas-nav-link">
-              Excel Sync
-            </button>
-            <button type="button" onClick={() => scrollToSection('metrics')} className="saas-nav-link">
-              Platform Metrics
-            </button>
           </nav>
 
           <div className="saas-nav-actions">
             <button
               type="button"
               className="saas-btn-text"
-              onClick={() => onOpenAuth('admin')}
+              onClick={() => onOpenAuth('admin', true)}
             >
               Admin Portal
             </button>
             <button
               type="button"
-              className="saas-btn-ghost"
-              onClick={() => onOpenAuth('user')}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
               className="saas-btn-primary"
-              onClick={() => onOpenAuth('user')}
+              onClick={() => onOpenAuth('user', false)}
             >
               Get Started
             </button>
@@ -95,8 +82,7 @@ export default function LandingPage({ onOpenAuth }) {
           {/* Supporting Description */}
           <p className="saas-hero-description">
             The high-performance workspace where administrators assign deliverables, team members
-            record live progress notes, and every milestone synchronizes seamlessly to master Excel
-            workbooks in real time.
+            record live progress notes, and every milestone synchronizes seamlessly in real time.
           </p>
 
           {/* Action Buttons */}
@@ -104,7 +90,7 @@ export default function LandingPage({ onOpenAuth }) {
             <button
               type="button"
               className="saas-cta-primary"
-              onClick={() => onOpenAuth('user')}
+              onClick={() => onOpenAuth('user', false)}
             >
               <span>Get Started</span>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -129,7 +115,7 @@ export default function LandingPage({ onOpenAuth }) {
               DASHBOARD PREVIEW & FLOATING UI MOCKUP
           ===================================================== */}
           <div className="saas-preview-wrapper">
-            {/* Floating UI Card 1: Master Excel Sync */}
+            {/* Floating UI Card 1: Live Cloud Sync */}
             <div className="saas-floating-card card-excel-sync">
               <div className="floating-card-icon excel-icon">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -142,10 +128,10 @@ export default function LandingPage({ onOpenAuth }) {
               </div>
               <div className="floating-card-body">
                 <div className="floating-card-header">
-                  <strong>Master Excel Sync</strong>
+                  <strong>Live Task Sync</strong>
                   <span className="live-pulse-dot" />
                 </div>
-                <p>Synced tasks.xlsx (Row 14) • Real-time</p>
+                <p>Real-time updates active</p>
               </div>
             </div>
 
@@ -200,7 +186,7 @@ export default function LandingPage({ onOpenAuth }) {
                 </div>
                 <div className="mockup-sync-status">
                   <span className="sync-pulse" />
-                  <span>Master Sync Online</span>
+                  <span>Workspace Connected</span>
                 </div>
               </div>
 
@@ -214,7 +200,7 @@ export default function LandingPage({ onOpenAuth }) {
                   </div>
                   <div className="mockup-stats-chips">
                     <span className="mockup-chip chip-active">3 Active Deliverables</span>
-                    <span className="mockup-chip chip-success">100% Synced</span>
+                    <span className="mockup-chip chip-success">All Updated</span>
                   </div>
                 </div>
 
@@ -298,7 +284,7 @@ export default function LandingPage({ onOpenAuth }) {
       </section>
 
       {/* =========================================================
-          3. FEATURES SECTION
+          3. FEATURES SECTION (CLEAN BOXES WITHOUT REDIRECT ARROWS)
       ========================================================== */}
       <section id="features" className="saas-features-section">
         <div className="saas-section-container">
@@ -307,7 +293,7 @@ export default function LandingPage({ onOpenAuth }) {
             <h2>Engineered for Agile Teams & Rigorous Tracking</h2>
             <p>
               Everything modern organizations need to allocate deliverables, foster accountability,
-              and maintain continuous spreadsheet compliance without friction.
+              and maintain continuous compliance without friction.
             </p>
           </div>
 
@@ -326,10 +312,6 @@ export default function LandingPage({ onOpenAuth }) {
                 Admins allocate tasks to team members by department with detailed instructions, live
                 countdown deadline timers, and attached project brief documents or URLs.
               </p>
-              <div className="feature-card-footer">
-                <span>Department-aware allocation</span>
-                <span>→</span>
-              </div>
             </div>
 
             {/* Feature 2 */}
@@ -344,10 +326,6 @@ export default function LandingPage({ onOpenAuth }) {
                 Team members log granular progress notes, upload deliverables or proof links, update
                 milestone statuses, and receive instant administrative feedback in real time.
               </p>
-              <div className="feature-card-footer">
-                <span>Live milestone updates</span>
-                <span>→</span>
-              </div>
             </div>
 
             {/* Feature 3 */}
@@ -366,10 +344,6 @@ export default function LandingPage({ onOpenAuth }) {
                 Task creations, deadline extensions, progress notes, and completion timestamps
                 automatically write directly into your master Excel workbook without manual data entry.
               </p>
-              <div className="feature-card-footer">
-                <span>Zero manual spreadsheet work</span>
-                <span>→</span>
-              </div>
             </div>
 
             {/* Feature 4 */}
@@ -384,10 +358,6 @@ export default function LandingPage({ onOpenAuth }) {
                 Dedicated, isolated workspaces for Administrators and Team Members ensure strict
                 privacy, secure attendance tracking, and personalized employee directory management.
               </p>
-              <div className="feature-card-footer">
-                <span>Role-tailored environments</span>
-                <span>→</span>
-              </div>
             </div>
           </div>
         </div>
@@ -401,7 +371,7 @@ export default function LandingPage({ onOpenAuth }) {
           <div className="saas-section-heading">
             <span className="saas-section-tag">STREAMLINED WORKFLOW</span>
             <h2>How Workly Powers Daily Collaboration</h2>
-            <p>From initial brief to final verified delivery and spreadsheet synchronization.</p>
+            <p>From initial brief to final verified delivery and progress tracking.</p>
           </div>
 
           <div className="saas-steps-row">
@@ -429,9 +399,9 @@ export default function LandingPage({ onOpenAuth }) {
 
             <div className="saas-step-card">
               <span className="step-number">03</span>
-              <h4>Automated Excel Sync & Feedback</h4>
+              <h4>Automated Sync & Feedback</h4>
               <p>
-                Every change is logged directly to the master Excel workbook. Admin reviews
+                Every change is logged directly to the master workbook. Admin reviews
                 deliverables and provides instant feedback.
               </p>
             </div>
@@ -440,62 +410,22 @@ export default function LandingPage({ onOpenAuth }) {
       </section>
 
       {/* =========================================================
-          5. METRICS & PLATFORM STATS SECTION
+          5. BOTTOM CALL TO ACTION BANNER
       ========================================================== */}
-      <section id="metrics" className="saas-metrics-section">
-        <div className="saas-section-container">
-          <div className="saas-metrics-box">
-            <div className="metrics-box-top">
-              <span className="saas-section-tag light">PROVEN PERFORMANCE</span>
-              <h2>Engineered for Enterprise Speed & Spreadsheet Reliability</h2>
-            </div>
-
-            <div className="metrics-grid">
-              <div className="metric-item">
-                <span className="metric-number">100%</span>
-                <span className="metric-label">Automated Excel Sync</span>
-                <p className="metric-subtext">Direct ExcelJS workbook updates</p>
-              </div>
-
-              <div className="metric-item">
-                <span className="metric-number">&lt; 50ms</span>
-                <span className="metric-label">Socket Event Latency</span>
-                <p className="metric-subtext">Instant real-time team broadcasts</p>
-              </div>
-
-              <div className="metric-item">
-                <span className="metric-number">3 Modules</span>
-                <span className="metric-label">Department Alignment</span>
-                <p className="metric-subtext">Integrated IT, HRD & Marketing</p>
-              </div>
-
-              <div className="metric-item">
-                <span className="metric-number">Zero</span>
-                <span className="metric-label">Manual Logging Friction</span>
-                <p className="metric-subtext">Automated attendance & audit trail</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* =========================================================
-          6. BOTTOM CALL TO ACTION BANNER
-      ========================================================== */}
-      <section id="sync-engine" className="saas-cta-banner-section">
+      <section className="saas-cta-banner-section">
         <div className="saas-section-container">
           <div className="saas-cta-banner">
             <div className="cta-banner-content">
               <h2>Ready to Transform Your Team's Workflow?</h2>
               <p>
                 Experience seamless task allocation, live countdown deadline management, and automatic
-                master Excel synchronization in one unified platform.
+                synchronization in one unified platform.
               </p>
               <div className="cta-banner-actions">
                 <button
                   type="button"
                   className="saas-cta-primary"
-                  onClick={() => onOpenAuth('user')}
+                  onClick={() => onOpenAuth('user', false)}
                 >
                   <span>Get Started with Workly</span>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -506,7 +436,7 @@ export default function LandingPage({ onOpenAuth }) {
                 <button
                   type="button"
                   className="saas-cta-ghost-light"
-                  onClick={() => onOpenAuth('admin')}
+                  onClick={() => onOpenAuth('admin', true)}
                 >
                   <span>Access Admin Portal</span>
                 </button>
@@ -517,7 +447,7 @@ export default function LandingPage({ onOpenAuth }) {
       </section>
 
       {/* =========================================================
-          7. CLEAN SAAS FOOTER
+          6. CLEAN SAAS FOOTER
       ========================================================== */}
       <footer className="saas-footer">
         <div className="saas-footer-container">
@@ -533,7 +463,7 @@ export default function LandingPage({ onOpenAuth }) {
               <span className="footer-brand-title">Workly</span>
             </div>
             <p className="footer-tagline">
-              Modern SaaS task allocation, live milestone tracking, and automatic Excel synchronization.
+              Modern SaaS task allocation, live milestone tracking, and automatic synchronization.
             </p>
           </div>
 
@@ -541,23 +471,20 @@ export default function LandingPage({ onOpenAuth }) {
             <div className="footer-links-col">
               <h5>Platform</h5>
               <button type="button" onClick={() => scrollToSection('features')}>Features</button>
-              <button type="button" onClick={() => scrollToSection('workflow')}>Workflow</button>
-              <button type="button" onClick={() => scrollToSection('sync-engine')}>Excel Sync</button>
-              <button type="button" onClick={() => scrollToSection('metrics')}>Metrics</button>
+              <button type="button" onClick={() => scrollToSection('workflow')}>How It Works</button>
             </div>
 
             <div className="footer-links-col">
               <h5>Access</h5>
-              <button type="button" onClick={() => onOpenAuth('user')}>Team Member Login</button>
-              <button type="button" onClick={() => onOpenAuth('admin')}>Administrator Portal</button>
-              <button type="button" onClick={() => onOpenAuth('user')}>Create Account</button>
+              <button type="button" onClick={() => onOpenAuth('admin', true)}>Administrator Portal</button>
+              <button type="button" onClick={() => onOpenAuth('user', false)}>Get Started</button>
             </div>
 
             <div className="footer-links-col">
               <h5>Compliance</h5>
-              <span>Node.js & ExcelJS</span>
-              <span>WebSocket Realtime</span>
+              <span>Real-Time Updates</span>
               <span>Role-Based Security</span>
+              <span>Department Workspaces</span>
               <span>Encrypted Sessions</span>
             </div>
           </div>

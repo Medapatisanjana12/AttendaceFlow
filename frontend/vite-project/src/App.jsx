@@ -9,9 +9,12 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalPortal, setAuthModalPortal] = useState('user');
+  const [adminOnly, setAdminOnly] = useState(false);
 
-  const handleOpenAuth = (portal = 'user') => {
-    setAuthModalPortal(portal);
+  const handleOpenAuth = (portal = 'user', isOnlyAdmin = false) => {
+    const isAdm = isOnlyAdmin || portal === 'admin';
+    setAuthModalPortal(isAdm ? 'admin' : portal);
+    setAdminOnly(isAdm);
     setIsAuthModalOpen(true);
   };
 
@@ -55,6 +58,7 @@ export default function App() {
         isOpen={isAuthModalOpen}
         onClose={handleCloseAuth}
         initialPortal={authModalPortal}
+        adminOnly={adminOnly}
         onLoginSuccess={handleLoginSuccess}
       />
     </>
