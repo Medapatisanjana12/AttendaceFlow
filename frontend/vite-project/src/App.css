@@ -6279,6 +6279,7 @@ tbody tr.admin-task-row .note-bubble {
 
 /* Centralized Files Shared by Admin Hub */
 .user-admin-files-hub {
+  margin-top: 36px;
   margin-bottom: 28px;
   padding: 24px 28px;
   background: #FFFFFF;
@@ -6457,7 +6458,8 @@ tbody tr.admin-task-row .note-bubble {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-top: 10px;
+  margin-top: 8px;
+  margin-bottom: 12px;
 }
 
 .tasks-horizontal-header {

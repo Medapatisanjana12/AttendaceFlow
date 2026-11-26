@@ -789,122 +789,13 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                 <span className="banner-tag">TASK MANAGEMENT</span>
                 <h1>Task Workspace & Files</h1>
                 <p>
-                  Access files shared by admin and update your task progress in one unified view.
+                  Review your assigned tasks and access shared admin files in one unified view.
                 </p>
               </div>
             </section>
 
             {/* ========================================================
-                CENTRALIZED SECTION: ALL FILES SHARED BY ADMIN
-                ======================================================== */}
-            <section className="user-admin-files-hub card">
-              <div className="admin-files-hub-header">
-                <div className="hub-title-wrap">
-                  <div className="hub-title-row">
-                    <h3 className="hub-title">Files Shared by Admin</h3>
-                    <span className="hub-count-badge">
-                      {adminFiles.length + legacyAdminFiles.length} {adminFiles.length + legacyAdminFiles.length === 1 ? 'file' : 'files'}
-                    </span>
-                  </div>
-                  <p className="hub-subtitle">
-                    All reference documents, briefs, and attachments shared by your admin across your tasks.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="btn-refresh-files"
-                  onClick={fetchAdminFiles}
-                  disabled={loadingAdminFiles}
-                  title="Refresh files"
-                >
-                  {loadingAdminFiles ? 'Refreshing...' : '↻ Refresh Files'}
-                </button>
-              </div>
-
-              {loadingAdminFiles && adminFiles.length === 0 ? (
-                <div className="admin-files-loading">
-                  <div className="loader-sm" />
-                  <span>Loading files shared by admin...</span>
-                </div>
-              ) : (adminFiles.length + legacyAdminFiles.length === 0) ? (
-                <div className="admin-files-empty">
-                  <p>No reference files or documents shared by admin yet.</p>
-                </div>
-              ) : (
-                <div className="admin-files-horizontal-list">
-                  {[...adminFiles, ...legacyAdminFiles].map((file) => {
-                    const badge = getFileTypeBadge(file.fileType, file.originalFileName);
-                    const downloadLink = file.isLegacy
-                      ? file.downloadUrl
-                      : `${API_BASE_URL}/attachments/download/${file.id}?role=user&email=${encodeURIComponent(userEmail || '')}`;
-
-                    return (
-                      <div key={file.id} className="att-row-item admin-hub-file-row">
-                        <div className="att-row-left">
-                          <span
-                            className="att-type-icon-pill"
-                            style={{
-                              backgroundColor: badge.color ? `${badge.color}15` : '#F1F5F9',
-                              color: badge.color || '#475569',
-                              borderColor: badge.color ? `${badge.color}40` : '#CBD5E1',
-                            }}
-                          >
-                            {badge.text}
-                          </span>
-                          <div className="att-row-meta">
-                            <div className="att-row-meta-top">
-                              <span className="att-row-name" title={file.originalFileName}>
-                                {file.originalFileName}
-                              </span>
-                              {file.taskTitle && (
-                                <span className="att-task-tag" title={`Associated with task: ${file.taskTitle}`}>
-                                  Task: {file.taskTitle}
-                                </span>
-                              )}
-                            </div>
-                            <div className="att-row-info">
-                              {file.fileSize > 0 && <span>{formatFileSize(file.fileSize)}</span>}
-                              {file.fileSize > 0 && file.createdAt && <span>•</span>}
-                              {file.createdAt && <span>{formatDate(file.createdAt)}</span>}
-                              {file.description && (
-                                <>
-                                  <span>•</span>
-                                  <span className="att-desc-text">{file.description}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="att-row-right">
-                          <span className="att-cat-badge admin-cat-badge">
-                            {file.fileCategory || 'Admin Brief'}
-                          </span>
-
-                          <a
-                            href={downloadLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="att-btn-download"
-                            title="Download / View document"
-                          >
-                            <span>Download</span>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                              <polyline points="7 10 12 15 17 10" />
-                              <line x1="12" y1="15" x2="12" y2="3" />
-                            </svg>
-                          </a>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {/* ========================================================
-                ASSIGNED TASKS SECTION (Horizontal Layout)
+                1. ASSIGNED TASKS SECTION (TOP)
                 ======================================================== */}
             {tasks.length === 0 ? (
               <div className="card empty-state">
@@ -1015,6 +906,115 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                 </div>
               </section>
             )}
+
+            {/* ========================================================
+                2. CENTRALIZED SECTION: FILES SHARED BY ADMIN (BOTTOM)
+                ======================================================== */}
+            <section className="user-admin-files-hub card">
+              <div className="admin-files-hub-header">
+                <div className="hub-title-wrap">
+                  <div className="hub-title-row">
+                    <h3 className="hub-title">Files Shared by Admin</h3>
+                    <span className="hub-count-badge">
+                      {adminFiles.length + legacyAdminFiles.length} {adminFiles.length + legacyAdminFiles.length === 1 ? 'file' : 'files'}
+                    </span>
+                  </div>
+                  <p className="hub-subtitle">
+                    All reference documents, briefs, and attachments shared by your admin across your tasks.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-refresh-files"
+                  onClick={fetchAdminFiles}
+                  disabled={loadingAdminFiles}
+                  title="Refresh files"
+                >
+                  {loadingAdminFiles ? 'Refreshing...' : '↻ Refresh Files'}
+                </button>
+              </div>
+
+              {loadingAdminFiles && adminFiles.length === 0 ? (
+                <div className="admin-files-loading">
+                  <div className="loader-sm" />
+                  <span>Loading files shared by admin...</span>
+                </div>
+              ) : (adminFiles.length + legacyAdminFiles.length === 0) ? (
+                <div className="admin-files-empty">
+                  <p>No reference files or documents shared by admin yet.</p>
+                </div>
+              ) : (
+                <div className="admin-files-horizontal-list">
+                  {[...adminFiles, ...legacyAdminFiles].map((file) => {
+                    const badge = getFileTypeBadge(file.fileType, file.originalFileName);
+                    const downloadLink = file.isLegacy
+                      ? file.downloadUrl
+                      : `${API_BASE_URL}/attachments/download/${file.id}?role=user&email=${encodeURIComponent(userEmail || '')}`;
+
+                    return (
+                      <div key={file.id} className="att-row-item admin-hub-file-row">
+                        <div className="att-row-left">
+                          <span
+                            className="att-type-icon-pill"
+                            style={{
+                              backgroundColor: badge.color ? `${badge.color}15` : '#F1F5F9',
+                              color: badge.color || '#475569',
+                              borderColor: badge.color ? `${badge.color}40` : '#CBD5E1',
+                            }}
+                          >
+                            {badge.text}
+                          </span>
+                          <div className="att-row-meta">
+                            <div className="att-row-meta-top">
+                              <span className="att-row-name" title={file.originalFileName}>
+                                {file.originalFileName}
+                              </span>
+                              {file.taskTitle && (
+                                <span className="att-task-tag" title={`Associated with task: ${file.taskTitle}`}>
+                                  Task: {file.taskTitle}
+                                </span>
+                              )}
+                            </div>
+                            <div className="att-row-info">
+                              {file.fileSize > 0 && <span>{formatFileSize(file.fileSize)}</span>}
+                              {file.fileSize > 0 && file.createdAt && <span>•</span>}
+                              {file.createdAt && <span>{formatDate(file.createdAt)}</span>}
+                              {file.description && (
+                                <>
+                                  <span>•</span>
+                                  <span className="att-desc-text">{file.description}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="att-row-right">
+                          <span className="att-cat-badge admin-cat-badge">
+                            {file.fileCategory || 'Admin Brief'}
+                          </span>
+
+                          <a
+                            href={downloadLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="att-btn-download"
+                            title="Download / View document"
+                          >
+                            <span>Download</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </>
         )}
       </main>
