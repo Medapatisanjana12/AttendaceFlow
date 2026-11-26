@@ -154,6 +154,7 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
   const [taskFeedback, setTaskFeedback] = useState({});
   const [adminFiles, setAdminFiles] = useState([]);
   const [loadingAdminFiles, setLoadingAdminFiles] = useState(false);
+  const [fileFilter, setFileFilter] = useState('All');
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [currentView, setCurrentView] = useState('overview');
   const [filterStatus, setFilterStatus] = useState('All');
@@ -182,13 +183,10 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
         }
       });
       if (Array.isArray(res.data)) {
-        const adminOnly = res.data.filter(
-          (att) => att.uploadDirection === 'Admin_to_User'
-        );
-        setAdminFiles(adminOnly);
+        setAdminFiles(res.data);
       }
     } catch (err) {
-      console.error('Failed to load admin files:', err);
+      console.error('Failed to load files:', err);
     } finally {
       setLoadingAdminFiles(false);
     }
@@ -322,19 +320,97 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
         )
     )
     .map((t) => ({
-      id: `legacy-${getTaskId(t)}`,
+      id: `legacy-admin-${getTaskId(t)}`,
+      taskId: getTaskId(t),
       originalFileName:
         (t.adminAttachment || '').split('/').pop()?.split('?')[0] ||
         'Admin Brief Document',
       fileSize: 0,
       createdAt: t.updatedAt || t.assignedDate || '',
       fileCategory: 'Admin Brief',
+      uploadDirection: 'Admin_to_User',
       taskTitle: t.title || '',
       downloadUrl: t.adminAttachment.startsWith('/')
         ? `${BACKEND_URL}${t.adminAttachment}`
         : t.adminAttachment,
       isLegacy: true,
+      legacyField: 'adminAttachment',
     }));
+
+  const legacyUserFiles = tasks
+    .filter(
+      (t) =>
+        t.proofAttachment &&
+        t.proofAttachment.startsWith('/uploads/') &&
+        !adminFiles.some(
+          (f) =>
+            f.fileUrl === t.proofAttachment ||
+            f.webViewLink === t.proofAttachment ||
+            (f.originalFileName && t.proofAttachment.includes(f.originalFileName))
+        )
+    )
+    .map((t) => ({
+      id: `legacy-user-${getTaskId(t)}`,
+      taskId: getTaskId(t),
+      originalFileName:
+        (t.proofAttachment || '').split('/').pop()?.split('?')[0] ||
+        'Deliverable Document',
+      fileSize: 0,
+      createdAt: t.updatedAt || '',
+      fileCategory: 'Deliverable',
+      uploadDirection: 'User_to_Admin',
+      taskTitle: t.title || '',
+      downloadUrl: t.proofAttachment.startsWith('/')
+        ? `${BACKEND_URL}${t.proofAttachment}`
+        : t.proofAttachment,
+      isLegacy: true,
+      legacyField: 'proofAttachment',
+    }));
+
+  const allFilesList = [...adminFiles, ...legacyAdminFiles, ...legacyUserFiles];
+  const filteredFilesList = allFilesList.filter((file) => {
+    if (fileFilter === 'Admin') return file.uploadDirection === 'Admin_to_User';
+    if (fileFilter === 'User') return file.uploadDirection === 'User_to_Admin';
+    return true;
+  });
+
+  const handleDeleteFile = async (file) => {
+    const isDrive = !file.isLegacy;
+    const confirmDelete = window.confirm(
+      `Are you sure you want to remove "${file.originalFileName}" from the website? The file will remain safely stored in Google Drive.`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      if (isDrive) {
+        await axios.delete(`${API_BASE_URL}/attachments/${file.id}`, {
+          params: {
+            role: 'user',
+            email: userEmail
+          }
+        });
+        setAdminFiles((prev) => prev.filter((f) => f.id !== file.id));
+      } else {
+        const taskId = file.taskId || file.id.replace('legacy-admin-', '').replace('legacy-user-', '');
+        const patchData = file.legacyField === 'proofAttachment'
+          ? { proofAttachment: '' }
+          : { adminAttachment: '' };
+
+        await axios.patch(`${API_BASE_URL}/tasks/${taskId}`, patchData);
+
+        setTasks((prev) =>
+          prev.map((t) =>
+            String(getTaskId(t)) === String(taskId)
+              ? { ...t, ...patchData }
+              : t
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Failed to remove attachment:', err);
+      alert(err.response?.data?.error || 'Failed to remove file from workspace.');
+    }
+  };
 
   // Update status
   const handleStatusChange = async (taskId, newStatus) => {
@@ -908,19 +984,19 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
             )}
 
             {/* ========================================================
-                2. CENTRALIZED SECTION: FILES SHARED BY ADMIN (BOTTOM)
+                2. CENTRALIZED SECTION: FILES & ATTACHMENTS (BOTTOM)
                 ======================================================== */}
             <section className="user-admin-files-hub card">
               <div className="admin-files-hub-header">
                 <div className="hub-title-wrap">
                   <div className="hub-title-row">
-                    <h3 className="hub-title">Files Shared by Admin</h3>
+                    <h3 className="hub-title">Task Files & Deliverables</h3>
                     <span className="hub-count-badge">
-                      {adminFiles.length + legacyAdminFiles.length} {adminFiles.length + legacyAdminFiles.length === 1 ? 'file' : 'files'}
+                      {filteredFilesList.length} {filteredFilesList.length === 1 ? 'file' : 'files'}
                     </span>
                   </div>
                   <p className="hub-subtitle">
-                    All reference documents, briefs, and attachments shared by your admin across your tasks.
+                    Reference documents shared by admin and submitted deliverables. Files removed from this dashboard remain safely stored in Google Drive.
                   </p>
                 </div>
                 <button
@@ -934,18 +1010,42 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                 </button>
               </div>
 
-              {loadingAdminFiles && adminFiles.length === 0 ? (
+              {/* Filter pills: All, Admin Briefs, My Deliverables */}
+              <div className="hub-filter-pills-bar">
+                {[
+                  { key: 'All', label: 'All Files', count: allFilesList.length },
+                  { key: 'Admin', label: 'Admin Briefs', count: allFilesList.filter(f => f.uploadDirection === 'Admin_to_User').length },
+                  { key: 'User', label: 'My Deliverables', count: allFilesList.filter(f => f.uploadDirection === 'User_to_Admin').length },
+                ].map((pill) => (
+                  <button
+                    key={pill.key}
+                    type="button"
+                    className={`hub-filter-pill-btn ${fileFilter === pill.key ? 'active' : ''}`}
+                    onClick={() => setFileFilter(pill.key)}
+                  >
+                    {pill.label} <span className="pill-counter">({pill.count})</span>
+                  </button>
+                ))}
+              </div>
+
+              {loadingAdminFiles && allFilesList.length === 0 ? (
                 <div className="admin-files-loading">
                   <div className="loader-sm" />
-                  <span>Loading files shared by admin...</span>
+                  <span>Loading files and deliverables...</span>
                 </div>
-              ) : (adminFiles.length + legacyAdminFiles.length === 0) ? (
+              ) : filteredFilesList.length === 0 ? (
                 <div className="admin-files-empty">
-                  <p>No reference files or documents shared by admin yet.</p>
+                  <p>
+                    {fileFilter === 'Admin'
+                      ? 'No reference files shared by admin for your tasks.'
+                      : fileFilter === 'User'
+                      ? 'No deliverables submitted yet for your tasks.'
+                      : 'No files or documents found in your workspace.'}
+                  </p>
                 </div>
               ) : (
                 <div className="admin-files-horizontal-list">
-                  {[...adminFiles, ...legacyAdminFiles].map((file) => {
+                  {filteredFilesList.map((file) => {
                     const badge = getFileTypeBadge(file.fileType, file.originalFileName);
                     const downloadLink = file.isLegacy
                       ? file.downloadUrl
@@ -990,24 +1090,45 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                         </div>
 
                         <div className="att-row-right">
-                          <span className="att-cat-badge admin-cat-badge">
-                            {file.fileCategory || 'Admin Brief'}
+                          <span
+                            className={`att-cat-badge ${
+                              file.uploadDirection === 'Admin_to_User'
+                                ? 'admin-cat-badge'
+                                : 'user-cat-badge'
+                            }`}
+                          >
+                            {file.uploadDirection === 'Admin_to_User' ? 'Admin Brief' : 'Deliverable'}
                           </span>
 
-                          <a
-                            href={downloadLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="att-btn-download"
-                            title="Download / View document"
-                          >
-                            <span>Download</span>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                              <polyline points="7 10 12 15 17 10" />
-                              <line x1="12" y1="15" x2="12" y2="3" />
-                            </svg>
-                          </a>
+                          <div className="att-hub-actions">
+                            <a
+                              href={downloadLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="att-btn-download"
+                              title="Download / View document"
+                            >
+                              <span>Download</span>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                              </svg>
+                            </a>
+
+                            <button
+                              type="button"
+                              className="att-btn-delete"
+                              onClick={() => handleDeleteFile(file)}
+                              title="Remove from website (remains stored in Google Drive)"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              </svg>
+                              <span>Delete</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );

@@ -689,36 +689,53 @@ app.delete('/api/attachments/:attachmentId', async (req, res) => {
 
     // Security & Authorization Checks
     if (role === 'user') {
-      const uEmail = String(email || '').trim().toLowerCase();
+      if (!email) {
+        return res.status(400).json({ error: 'User email is required to delete attachment' });
+      }
+      const uEmail = String(email).trim().toLowerCase();
       const uploader = String(attachment.uploadedBy || '').trim().toLowerCase();
 
-      // Users can only delete their own uploads in User_to_Admin direction, never admin files
-      if (attachment.uploadDirection === 'Admin_to_User' || attachment.uploadedRole === 'admin') {
-        return res.status(403).json({ error: 'Access denied: Team members cannot delete administrator reference attachments.' });
+      let isAuthorized = false;
+      if (uEmail && uEmail === uploader) {
+        isAuthorized = true;
       }
 
-      if (uEmail !== uploader) {
-        const userObj = await findUserByNameOrEmail(uEmail);
-        const userName = userObj?.name?.trim().toLowerCase();
-        const userHandle = userObj?.username?.trim().toLowerCase();
+      const userObj = await findUserByNameOrEmail(uEmail);
+      const userName = userObj?.name?.trim().toLowerCase();
+      const userHandle = userObj?.username?.trim().toLowerCase();
 
-        if (userName !== uploader && userHandle !== uploader) {
-          return res.status(403).json({ error: 'Access denied: You can only delete attachments that you uploaded.' });
+      if (!isAuthorized && (userName === uploader || userHandle === uploader)) {
+        isAuthorized = true;
+      }
+
+      // If not the uploader, check if this user is assigned to the task (allows deleting admin files for their task)
+      if (!isAuthorized && task) {
+        const assigned = String(task.assignedTo || '').trim().toLowerCase();
+        const assignedEmail = String(task.assignedToEmail || '').trim().toLowerCase();
+
+        if (
+          assigned === uEmail ||
+          assignedEmail === uEmail ||
+          (userName && assigned === userName) ||
+          (userHandle && assigned === userHandle)
+        ) {
+          isAuthorized = true;
         }
       }
+
+      if (!isAuthorized) {
+        return res.status(403).json({ error: 'Access denied: You can only delete attachments associated with your assigned tasks.' });
+      }
     }
 
-    // 1. Delete from Google Drive
-    try {
-      await googleDriveService.deleteFile(attachment.googleDriveFileId);
-    } catch (driveErr) {
-      console.warn('Google Drive deletion warning (file may already be removed):', driveErr.message);
-    }
+    // NOTE: Explicit user requirement: "and also these should store in drive even after deleting them in website"
+    // We intentionally DO NOT delete the physical file from Google Drive, preserving it permanently in Drive storage!
+    // We only remove the attachment record from the website (Excel Attachments worksheet).
 
-    // 2. Delete from Excel Attachments worksheet
+    // Delete from Excel Attachments worksheet
     await deleteAttachmentRecord(attachmentId);
 
-    // 3. Emit real-time deletion notifications
+    // Emit real-time deletion notifications
     io.to('admins').emit('attachment_deleted', { attachmentId, taskId: attachment.taskId });
     if (task) {
       const assignedRoom = String(task.assignedTo).trim().toLowerCase();
@@ -728,7 +745,12 @@ app.delete('/api/attachments/:attachmentId', async (req, res) => {
       }
     }
 
-    res.json({ success: true, message: 'Attachment deleted successfully', attachmentId });
+    res.json({
+      success: true,
+      message: 'Attachment removed from website successfully (retained in Google Drive)',
+      attachmentId,
+      storedInDrive: true
+    });
   } catch (err) {
     console.error('Attachment deletion error:', err);
     res.status(500).json({ error: 'Failed to delete attachment: ' + err.message });

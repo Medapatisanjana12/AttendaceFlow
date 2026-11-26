@@ -206,7 +206,9 @@ export default function AttachmentManager({
   };
 
   const handleDelete = async (attachment) => {
-    const confirmDelete = window.confirm(`Are you sure you want to delete "${attachment.originalFileName || attachment.fileName}"? This will permanently remove the file from Google Drive.`);
+    const confirmDelete = window.confirm(
+      `Are you sure you want to remove "${attachment.originalFileName || attachment.fileName}" from the website? The file will remain safely preserved in Google Drive.`
+    );
     if (!confirmDelete) return;
 
     setErrorMsg('');
@@ -219,9 +221,9 @@ export default function AttachmentManager({
       });
 
       setAttachments((prev) => prev.filter((a) => a.attachmentId !== attachment.attachmentId));
-      setSuccessMsg('Attachment deleted successfully from Google Drive.');
+      setSuccessMsg('Attachment removed from website (file remains stored in Google Drive).');
       if (onAttachmentCountChange) onAttachmentCountChange(attachments.length - 1);
-      setTimeout(() => setSuccessMsg(''), 3000);
+      setTimeout(() => setSuccessMsg(''), 3500);
     } catch (err) {
       console.error('Delete attachment error:', err);
       setErrorMsg(err.response?.data?.error || 'Failed to delete attachment.');
@@ -390,12 +392,7 @@ export default function AttachmentManager({
             {filteredAttachments.map((att) => {
               const badge = getFileTypeBadge(att.fileType, att.originalFileName);
               const isAdminFile = att.uploadDirection === 'Admin_to_User';
-              const canDeleteThis =
-                currentUser?.role === 'admin' ||
-                (!isAdminFile &&
-                  (att.uploadedBy === currentUser?.email ||
-                    att.uploadedBy === currentUser?.name ||
-                    att.uploadedBy === currentUser?.username));
+              const canDeleteThis = true; // Both admin and assigned users can delete files from website
 
               return (
                 <div key={att.attachmentId} className="att-row-item">
@@ -474,7 +471,7 @@ export default function AttachmentManager({
                           type="button"
                           className="btn-att-row-delete"
                           onClick={() => handleDelete(att)}
-                          title="Delete deliverable"
+                          title="Delete from website (remains stored in Google Drive)"
                         >
                           ✕
                         </button>
