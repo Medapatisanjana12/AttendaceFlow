@@ -517,6 +517,56 @@ app.post('/api/attachments/upload', (req, res) => {
   });
 });
 
+app.get('/api/attachments', async (req, res) => {
+  try {
+    const { role, email } = req.query;
+    const allAttachments = await getAllAttachments();
+
+    if (role === 'admin') {
+      return res.json(allAttachments);
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'User email is required' });
+    }
+
+    const allTasks = await getAllTasks();
+    const user = await findUserByNameOrEmail(email);
+    const targetEmail = String(email).trim().toLowerCase();
+    const targetName = user?.name ? user.name.trim().toLowerCase() : '';
+    const targetUsername = user?.username ? user.username.trim().toLowerCase() : '';
+
+    const userTaskMap = new Map();
+    allTasks.forEach((t) => {
+      const assigned = (t.assignedTo || '').trim().toLowerCase();
+      const assignedEmail = (t.assignedToEmail || '').trim().toLowerCase();
+      if (
+        assigned === targetEmail ||
+        assignedEmail === targetEmail ||
+        (targetName && assigned === targetName) ||
+        (targetUsername && assigned === targetUsername)
+      ) {
+        userTaskMap.set(String(t.id).trim(), t);
+      }
+    });
+
+    const userAttachments = allAttachments
+      .filter((att) => userTaskMap.has(String(att.taskId).trim()))
+      .map((att) => {
+        const parentTask = userTaskMap.get(String(att.taskId).trim());
+        return {
+          ...att,
+          taskTitle: parentTask?.title || '',
+        };
+      });
+
+    res.json(userAttachments);
+  } catch (err) {
+    console.error('Error fetching user attachments:', err);
+    res.status(500).json({ error: 'Failed to retrieve attachments' });
+  }
+});
+
 app.get('/api/attachments/:taskId', async (req, res) => {
   try {
     const { taskId } = req.params;

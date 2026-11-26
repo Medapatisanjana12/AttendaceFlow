@@ -3,7 +3,7 @@ import axios from 'axios';
 import socket from '../socket';
 import { API_BASE_URL } from '../config';
 
-function formatFileSize(bytes) {
+export function formatFileSize(bytes) {
   if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -11,7 +11,7 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-function formatDate(dateString) {
+export function formatDate(dateString) {
   if (!dateString) return '—';
   try {
     const d = new Date(dateString);
@@ -25,7 +25,7 @@ function formatDate(dateString) {
   }
 }
 
-function getFileTypeBadge(fileType, originalFileName = '') {
+export function getFileTypeBadge(fileType, originalFileName = '') {
   const ext = originalFileName.split('.').pop()?.toUpperCase() || '';
   const type = (fileType || '').toLowerCase();
 

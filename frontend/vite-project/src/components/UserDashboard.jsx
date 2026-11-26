@@ -4,7 +4,7 @@ import axios from 'axios';
 import socket from '../socket';
 import { API_BASE_URL, BACKEND_URL } from '../config';
 import { getTaskDeadlineInfo } from '../utils/timerUtils';
-import AttachmentManager from './AttachmentManager';
+import AttachmentManager, { formatFileSize, formatDate, getFileTypeBadge } from './AttachmentManager';
 
 const API_URL = API_BASE_URL;
 
@@ -152,6 +152,8 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
   const [proofs, setProofs] = useState({});
   const [uploadingTask, setUploadingTask] = useState(null);
   const [taskFeedback, setTaskFeedback] = useState({});
+  const [adminFiles, setAdminFiles] = useState([]);
+  const [loadingAdminFiles, setLoadingAdminFiles] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [currentView, setCurrentView] = useState('overview');
   const [filterStatus, setFilterStatus] = useState('All');
@@ -168,6 +170,29 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
     }, 1000);
     return () => clearInterval(timerInterval);
   }, []);
+
+  const fetchAdminFiles = async () => {
+    if (!userEmail) return;
+    try {
+      setLoadingAdminFiles(true);
+      const res = await axios.get(`${API_BASE_URL}/attachments`, {
+        params: {
+          role: 'user',
+          email: userEmail
+        }
+      });
+      if (Array.isArray(res.data)) {
+        const adminOnly = res.data.filter(
+          (att) => att.uploadDirection === 'Admin_to_User'
+        );
+        setAdminFiles(adminOnly);
+      }
+    } catch (err) {
+      console.error('Failed to load admin files:', err);
+    } finally {
+      setLoadingAdminFiles(false);
+    }
+  };
 
   // Fetch tasks and listen for live updates
   useEffect(() => {
@@ -233,8 +258,14 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
       );
     };
 
+    const handleAttachmentEvent = () => {
+      fetchAdminFiles();
+    };
+
     socket.on('task_assigned', handleAssigned);
     socket.on('status_updated', handleUpdated);
+    socket.on('attachment_uploaded', handleAttachmentEvent);
+    socket.on('attachment_deleted', handleAttachmentEvent);
 
     socket.connect();
     socket.emit('join_room', {
@@ -243,11 +274,14 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
     });
 
     fetchTasks();
+    fetchAdminFiles();
 
     return () => {
       active = false;
       socket.off('task_assigned', handleAssigned);
       socket.off('status_updated', handleUpdated);
+      socket.off('attachment_uploaded', handleAttachmentEvent);
+      socket.off('attachment_deleted', handleAttachmentEvent);
       socket.disconnect();
     };
   }, [userEmail]);
@@ -274,6 +308,33 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
     : tasks.filter(
         (task) => (task.status || 'Pending') === filterStatus
       );
+
+  // Synthesize legacy attachments from tasks if any exist
+  const legacyAdminFiles = tasks
+    .filter(
+      (t) =>
+        t.adminAttachment &&
+        !adminFiles.some(
+          (f) =>
+            f.fileUrl === t.adminAttachment ||
+            f.webViewLink === t.adminAttachment ||
+            (f.originalFileName && t.adminAttachment.includes(f.originalFileName))
+        )
+    )
+    .map((t) => ({
+      id: `legacy-${getTaskId(t)}`,
+      originalFileName:
+        (t.adminAttachment || '').split('/').pop()?.split('?')[0] ||
+        'Admin Brief Document',
+      fileSize: 0,
+      createdAt: t.updatedAt || t.assignedDate || '',
+      fileCategory: 'Admin Brief',
+      taskTitle: t.title || '',
+      downloadUrl: t.adminAttachment.startsWith('/')
+        ? `${BACKEND_URL}${t.adminAttachment}`
+        : t.adminAttachment,
+      isLegacy: true,
+    }));
 
   // Update status
   const handleStatusChange = async (taskId, newStatus) => {
@@ -726,13 +787,125 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
             <section className="update-page-heading">
               <div>
                 <span className="banner-tag">TASK MANAGEMENT</span>
-                <h1>Let's get things done!</h1>
+                <h1>Task Workspace & Files</h1>
                 <p>
-                  Update your progress and keep your work moving forward.
+                  Access files shared by admin and update your task progress in one unified view.
                 </p>
               </div>
             </section>
 
+            {/* ========================================================
+                CENTRALIZED SECTION: ALL FILES SHARED BY ADMIN
+                ======================================================== */}
+            <section className="user-admin-files-hub card">
+              <div className="admin-files-hub-header">
+                <div className="hub-title-wrap">
+                  <div className="hub-title-row">
+                    <h3 className="hub-title">Files Shared by Admin</h3>
+                    <span className="hub-count-badge">
+                      {adminFiles.length + legacyAdminFiles.length} {adminFiles.length + legacyAdminFiles.length === 1 ? 'file' : 'files'}
+                    </span>
+                  </div>
+                  <p className="hub-subtitle">
+                    All reference documents, briefs, and attachments shared by your admin across your tasks.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-refresh-files"
+                  onClick={fetchAdminFiles}
+                  disabled={loadingAdminFiles}
+                  title="Refresh files"
+                >
+                  {loadingAdminFiles ? 'Refreshing...' : '↻ Refresh Files'}
+                </button>
+              </div>
+
+              {loadingAdminFiles && adminFiles.length === 0 ? (
+                <div className="admin-files-loading">
+                  <div className="loader-sm" />
+                  <span>Loading files shared by admin...</span>
+                </div>
+              ) : (adminFiles.length + legacyAdminFiles.length === 0) ? (
+                <div className="admin-files-empty">
+                  <p>No reference files or documents shared by admin yet.</p>
+                </div>
+              ) : (
+                <div className="admin-files-horizontal-list">
+                  {[...adminFiles, ...legacyAdminFiles].map((file) => {
+                    const badge = getFileTypeBadge(file.fileType, file.originalFileName);
+                    const downloadLink = file.isLegacy
+                      ? file.downloadUrl
+                      : `${API_BASE_URL}/attachments/download/${file.id}?role=user&email=${encodeURIComponent(userEmail || '')}`;
+
+                    return (
+                      <div key={file.id} className="att-row-item admin-hub-file-row">
+                        <div className="att-row-left">
+                          <span
+                            className="att-type-icon-pill"
+                            style={{
+                              backgroundColor: badge.color ? `${badge.color}15` : '#F1F5F9',
+                              color: badge.color || '#475569',
+                              borderColor: badge.color ? `${badge.color}40` : '#CBD5E1',
+                            }}
+                          >
+                            {badge.text}
+                          </span>
+                          <div className="att-row-meta">
+                            <div className="att-row-meta-top">
+                              <span className="att-row-name" title={file.originalFileName}>
+                                {file.originalFileName}
+                              </span>
+                              {file.taskTitle && (
+                                <span className="att-task-tag" title={`Associated with task: ${file.taskTitle}`}>
+                                  Task: {file.taskTitle}
+                                </span>
+                              )}
+                            </div>
+                            <div className="att-row-info">
+                              {file.fileSize > 0 && <span>{formatFileSize(file.fileSize)}</span>}
+                              {file.fileSize > 0 && file.createdAt && <span>•</span>}
+                              {file.createdAt && <span>{formatDate(file.createdAt)}</span>}
+                              {file.description && (
+                                <>
+                                  <span>•</span>
+                                  <span className="att-desc-text">{file.description}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="att-row-right">
+                          <span className="att-cat-badge admin-cat-badge">
+                            {file.fileCategory || 'Admin Brief'}
+                          </span>
+
+                          <a
+                            href={downloadLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="att-btn-download"
+                            title="Download / View document"
+                          >
+                            <span>Download</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* ========================================================
+                ASSIGNED TASKS SECTION (Horizontal Layout)
+                ======================================================== */}
             {tasks.length === 0 ? (
               <div className="card empty-state">
                 <EmptyIllustration />
@@ -743,283 +916,103 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                 </p>
               </div>
             ) : (
-              <section className="task-cards-grid">
-                {tasks.map((task, index) => {
-                  const taskId = getTaskId(task);
-                  const status = task.status || 'Pending';
-                  const timerInfo = getTaskDeadlineInfo(task, currentTime);
+              <section className="tasks-horizontal-section">
+                <div className="tasks-horizontal-header">
+                  <div>
+                    <h2 className="section-main-title">Assigned Tasks</h2>
+                    <p className="section-main-sub">
+                      Review task details, monitor live countdown deadlines, and update status.
+                    </p>
+                  </div>
+                  <span className="tasks-count-pill">
+                    {tasks.length} {tasks.length === 1 ? 'Task' : 'Tasks'}
+                  </span>
+                </div>
 
-                  return (
-                    <article
-                      className="task-bento-card animated-task"
-                      key={taskId}
-                      style={{ '--card-index': index }}
-                    >
-                      <div className="task-card-top">
-                        <StatusBadge status={status} />
-                        <span className="task-number">
-                          TASK {String(index + 1).padStart(2, '0')}
-                        </span>
-                      </div>
+                <div className="tasks-horizontal-list">
+                  {tasks.map((task, index) => {
+                    const taskId = getTaskId(task);
+                    const status = task.status || 'Pending';
+                    const timerInfo = getTaskDeadlineInfo(task, currentTime);
 
-                      <h3>{task.title}</h3>
+                    return (
+                      <article
+                        className="task-horizontal-row-card animated-task"
+                        key={taskId}
+                        style={{ '--card-index': index }}
+                      >
+                        <div className="task-h-left">
+                          <div className="task-h-header-line">
+                            <span className="task-h-number">
+                              TASK {String(index + 1).padStart(2, '0')}
+                            </span>
+                            <StatusBadge status={status} />
+                          </div>
 
-                      <p className="task-description">
-                        {task.description ||
-                          'No additional instructions provided.'}
-                      </p>
+                          <h3 className="task-h-title">{task.title}</h3>
 
-                      {/* DEADLINE & LIVE COUNTDOWN TIMER BANNER */}
-                      <div className={`user-task-timer-banner ${timerInfo.badgeClass}`}>
-                        <div className="timer-banner-header">
-                          <span className="timer-banner-title">
-                            {timerInfo.isCompleted
-                              ? (timerInfo.isOnTime ? 'Completed On Time' : 'Completed Late')
-                              : (timerInfo.isOverdue ? 'Deadline Passed (Overdue)' : 'Task Deadline & Live Timer')}
-                          </span>
-                        </div>
-                        <div className="timer-banner-body">
-                          <span className="timer-banner-time">{timerInfo.primaryText}</span>
-                          {timerInfo.secondaryText && (
-                            <span className="timer-banner-sub">{timerInfo.secondaryText}</span>
+                          <p className="task-h-description">
+                            {task.description ||
+                              'No additional instructions provided.'}
+                          </p>
+
+                          {/* DEADLINE & LIVE COUNTDOWN TIMER BANNER */}
+                          <div className={`user-task-timer-banner ${timerInfo.badgeClass}`}>
+                            <div className="timer-banner-header">
+                              <span className="timer-banner-title">
+                                {timerInfo.isCompleted
+                                  ? (timerInfo.isOnTime ? 'Completed On Time' : 'Completed Late')
+                                  : (timerInfo.isOverdue ? 'Deadline Passed (Overdue)' : 'Task Deadline & Live Timer')}
+                              </span>
+                            </div>
+                            <div className="timer-banner-body">
+                              <span className="timer-banner-time">{timerInfo.primaryText}</span>
+                              {timerInfo.secondaryText && (
+                                <span className="timer-banner-sub">{timerInfo.secondaryText}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* ADMIN FEEDBACK BANNER */}
+                          {task.adminFeedback && (
+                            <div className="task-admin-feedback-card active">
+                              <div className="feedback-card-top">
+                                <strong>Admin Feedback:</strong>
+                              </div>
+                              <p className="feedback-card-text">"{task.adminFeedback}"</p>
+                            </div>
                           )}
                         </div>
-                      </div>
 
-                      {/* ADMIN FEEDBACK BANNER */}
-                      {task.adminFeedback ? (
-                        <div className="task-admin-feedback-card active">
-                          <div className="feedback-card-top">
-                            <strong>Admin Feedback:</strong>
-                          </div>
-                          <p className="feedback-card-text">"{task.adminFeedback}"</p>
-                        </div>
-                      ) : (
-                        <div className="task-admin-feedback-card awaiting">
-                          <span className="feedback-card-awaiting-text">
-                            No feedback from admin yet. Review files shared below and submit your deliverables.
-                          </span>
-                        </div>
-                      )}
-
-                      {/* ========================================================
-                          SECTION A: FILES SHARED BY ADMIN (Incoming Deliverables)
-                          ======================================================== */}
-                      <section className="task-section-box section-admin-files">
-                        <AttachmentManager
-                          taskId={taskId}
-                          currentUser={{
-                            role: 'user',
-                            email: currentUser?.email || userEmail || '',
-                            name: currentUser?.name || currentUser?.username || 'Team Member',
-                          }}
-                          filterDirection="Admin_to_User"
-                          title="Files Shared by Admin"
-                          readOnly={true}
-                          hideTabs={true}
-                          emptyMessage="No reference files or documents shared by admin for this deliverable."
-                        />
-
-                        {/* Legacy assigned document link fallback */}
-                        {task.adminAttachment && (
-                          <div className="task-shared-admin-doc">
-                            <span className="shared-doc-label">Project Brief Document:</span>
-                            <a
-                              href={
-                                task.adminAttachment.startsWith('/')
-                                  ? `${BACKEND_URL}${task.adminAttachment}`
-                                  : task.adminAttachment
-                              }
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn-view-admin-doc"
-                            >
-                              View Assigned Document ↗
-                            </a>
-                          </div>
-                        )}
-                      </section>
-
-                      {/* ========================================================
-                          SECTION B: SUBMIT YOUR WORK (Outgoing Deliverables)
-                          ======================================================== */}
-                      <section className="task-section-box section-submit-work">
-                        <div className="submit-work-header">
-                          <h4 className="submit-work-title">Submit Your Work</h4>
-                          <span className="submit-work-subtitle">
-                            Upload your completed deliverables to Google Drive, record progress notes, and share project links.
-                          </span>
-                        </div>
-
-                        {/* 1. Progress Notes */}
-                        <div className="submit-field-group">
-                          <label htmlFor={`note-${taskId}`}>
-                            Progress Notes & Milestone Summary
-                          </label>
-                          <textarea
-                            id={`note-${taskId}`}
-                            value={
-                              notes[taskId] !== undefined
-                                ? notes[taskId]
-                                : task.userNote || ''
-                            }
-                            onChange={(e) =>
-                              setNotes((prev) => ({
-                                ...prev,
-                                [taskId]: e.target.value,
-                              }))
-                            }
-                            placeholder="Describe what you completed, milestones achieved, or deliverable summary..."
-                            rows={3}
-                            className="submit-notes-textarea"
-                          />
-                        </div>
-
-                        {/* 2. Document Upload Button */}
-                        <div className="submit-field-group">
-                          <label>Upload Document Deliverable (Google Drive)</label>
-                          <div className="deliverable-upload-controls">
-                            <input
-                              type="file"
-                              id={`file-input-${taskId}`}
-                              className="file-input-hidden"
-                              accept=".pdf,.jpeg,.jpg,.png,.webp,.doc,.docx,.xls,.xlsx"
-                              onChange={(e) => {
-                                if (e.target.files?.[0]) {
-                                  handleFileUpload(taskId, e.target.files[0]);
-                                  e.target.value = '';
-                                }
-                              }}
-                            />
-                            <label
-                              htmlFor={`file-input-${taskId}`}
-                              className={`btn-deliverable-upload ${uploadingTask === taskId ? 'loading' : ''}`}
-                            >
-                              <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="17 8 12 3 7 8" />
-                                <line x1="12" y1="3" x2="12" y2="15" />
-                              </svg>
-                              <span>
-                                {uploadingTask === taskId
-                                  ? 'Uploading to Google Drive...'
-                                  : 'Upload Document'}
-                              </span>
-                            </label>
-                            <span className="upload-help-text">
-                              Max 10 MB (PDF, DOCX, XLSX, PNG, JPG)
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* 3. Submitted Deliverables Horizontal List */}
-                        <div className="submitted-deliverables-wrap">
-                          <AttachmentManager
-                            taskId={taskId}
-                            currentUser={{
-                              role: 'user',
-                              email: currentUser?.email || userEmail || '',
-                              name: currentUser?.name || currentUser?.username || 'Team Member',
-                            }}
-                            filterDirection="User_to_Admin"
-                            uploadDirection="User_to_Admin"
-                            title="Your Uploaded Deliverables"
-                            canUpload={false}
-                            hideTabs={true}
-                            emptyMessage="No deliverables submitted yet. Click 'Upload Document' above to submit your completed files."
-                          />
-                        </div>
-
-                        {/* 4. External Link (GitHub, Figma, Google Docs) */}
-                        <div className="submit-field-group">
-                          <label htmlFor={`link-${taskId}`}>
-                            External Work Link (Optional &mdash; GitHub, Figma, Docs)
-                          </label>
-                          <div className="proof-url-wrapper">
-                            <input
-                              id={`link-${taskId}`}
-                              type="url"
-                              className="proof-url-input"
-                              placeholder="Paste external project link (https://...)"
-                              value={
-                                proofs[taskId] !== undefined
-                                  ? proofs[taskId]
-                                  : task.proofAttachment || ''
-                              }
-                              onChange={(e) =>
-                                setProofs((prev) => ({
-                                  ...prev,
-                                  [taskId]: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                        </div>
-
-                        {/* Feedback message banner */}
-                        {taskFeedback[taskId] && (
-                          <div className={`task-feedback-banner ${taskFeedback[taskId].type}`}>
-                            {taskFeedback[taskId].msg}
-                          </div>
-                        )}
-
-                        {/* 5. Save Progress & Proof Button */}
-                        <button
-                          type="button"
-                          className="btn-primary save-btn"
-                          disabled={savingTask === taskId || uploadingTask === taskId}
-                          onClick={() =>
-                            handleSaveWorkUpdate(
-                              taskId,
-                              task.userNote,
-                              task.proofAttachment
-                            )
-                          }
-                        >
-                          {savingTask === taskId
-                            ? 'Saving Work & Notes...'
-                            : 'Save Progress & Proof'}
-                        </button>
-                      </section>
-
-                      <div className="status-section">
-                        <label>Update Status</label>
-
-                        <div className="status-options">
-                          {['Pending', 'In Progress', 'Completed'].map(
-                            (option) => (
+                        <div className="task-h-status-col">
+                          <label className="status-col-label">Update Status</label>
+                          <div className="status-h-options">
+                            {['Pending', 'In Progress', 'Completed'].map((option) => (
                               <button
                                 key={option}
+                                type="button"
                                 disabled={savingTask === taskId}
                                 className={
                                   status === option
-                                    ? `status-choice active ${option
+                                    ? `btn-h-status active ${option
                                         .toLowerCase()
                                         .replace(' ', '-')}`
-                                    : 'status-choice'
+                                    : 'btn-h-status'
                                 }
-                                onClick={() =>
-                                  handleStatusChange(taskId, option)
-                                }
+                                onClick={() => handleStatusChange(taskId, option)}
                               >
-                                {option}
+                                {savingTask === taskId ? '...' : option}
                               </button>
-                            )
+                            ))}
+                          </div>
+                          {savingTask === taskId && (
+                            <span className="status-updating-label">Updating status...</span>
                           )}
                         </div>
-                      </div>
-                    </article>
-                  );
-                })}
+                      </article>
+                    );
+                  })}
+                </div>
               </section>
             )}
           </>
