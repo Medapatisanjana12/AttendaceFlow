@@ -1,88 +1,31 @@
 import { useState } from 'react';
-import axios from 'axios';
 import AdminDashboard from './components/AdminDashboard';
 import UserDashboard from './components/UserDashboard';
-import { BrandLogo, HeroEditorialIllustration } from './components/Illustrations';
-import { API_BASE_URL } from './config';
+import LandingPage from './components/LandingPage';
+import AuthModal from './components/AuthModal';
 import './App.css';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
-  const [loginPortal, setLoginPortal] = useState('user');
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalPortal, setAuthModalPortal] = useState('user');
 
-  const [name, setName] = useState('');
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
-
-  const switchPortal = (portal) => {
-    setLoginPortal(portal);
-    setIsRegisterMode(false);
-    setError('');
-    setSuccessMsg('');
-    setName('');
-    setUsername('');
-    setEmail('');
-    setPassword('');
+  const handleOpenAuth = (portal = 'user') => {
+    setAuthModalPortal(portal);
+    setIsAuthModalOpen(true);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccessMsg('');
+  const handleCloseAuth = () => {
+    setIsAuthModalOpen(false);
+  };
 
-    try {
-      if (isRegisterMode && loginPortal === 'user') {
-        await axios.post(`${API_BASE_URL}/register`, {
-          name,
-          username,
-          email,
-          password,
-        });
-        setSuccessMsg('Account created successfully! Please sign in with your email or username.');
-        setIsRegisterMode(false);
-        setPassword('');
-        setUsername('');
-      } else {
-        const res = await axios.post(`${API_BASE_URL}/login`, {
-          email: email.trim(),
-          password,
-        });
-
-        if (res.data.role !== loginPortal) {
-          setError(
-            loginPortal === 'admin'
-              ? 'Access denied: This account is registered as a Team Member. Please switch to the Team Member portal.'
-              : 'Access denied: This is an Admin account. Please switch to the Admin Portal tab.'
-          );
-          return;
-        }
-
-        setCurrentUser(res.data);
-      }
-    } catch (err) {
-      console.error('Sign in error:', err);
-      if (err.response?.data?.error) {
-        setError(err.response.data.error);
-      } else if (err.message === 'Network Error' || !err.response) {
-        setError('Cannot connect to backend server. Please verify the backend service is running.');
-      } else {
-        setError(err.message || 'Something went wrong during sign in');
-      }
-    }
+  const handleLoginSuccess = (user) => {
+    setCurrentUser(user);
+    setIsAuthModalOpen(false);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    setName('');
-    setUsername('');
-    setEmail('');
-    setPassword('');
-    setError('');
-    setSuccessMsg('');
   };
 
   if (currentUser?.role === 'admin') {
@@ -96,172 +39,24 @@ export default function App() {
   }
 
   if (currentUser?.role === 'user') {
-    return <UserDashboard userEmail={currentUser.email} currentUser={currentUser} onLogout={handleLogout} />;
+    return (
+      <UserDashboard
+        userEmail={currentUser.email}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      />
+    );
   }
 
   return (
-    <div className="auth-wrapper">
-      {/* Left Hero Panel */}
-      <div className="hero-panel">
-        <div style={{ marginBottom: '24px', position: 'relative', zIndex: 1 }}>
-          <BrandLogo />
-        </div>
-
-        <div className="hero-badge">Real-Time Excel Sync</div>
-        <h1>Smart Workflow & Task Tracker</h1>
-        <p>
-          Assign tasks, add live progress notes, and sync every update directly
-          into your master Excel workbook automatically.
-        </p>
-
-        <ul className="feature-list">
-          <li>Instant progress notes & status updates</li>
-          <li>Role-based privacy for team members</li>
-          <li>Zero-effort Excel spreadsheet logging</li>
-        </ul>
-
-        <HeroEditorialIllustration />
-      </div>
-
-      {/* Right Auth Card */}
-      <div className="auth-panel">
-        <div className="auth-card">
-          <div className="portal-selector">
-            <button
-              type="button"
-              className={loginPortal === 'user' ? 'portal-btn active' : 'portal-btn'}
-              onClick={() => switchPortal('user')}
-            >
-              User Login
-            </button>
-            <button
-              type="button"
-              className={loginPortal === 'admin' ? 'portal-btn active-admin' : 'portal-btn'}
-              onClick={() => switchPortal('admin')}
-            >
-              Admin Login
-            </button>
-          </div>
-
-          {loginPortal === 'user' && (
-            <div className="auth-tabs">
-              <button
-                type="button"
-                className={!isRegisterMode ? 'tab active' : 'tab'}
-                onClick={() => {
-                  setIsRegisterMode(false);
-                  setError('');
-                }}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                className={isRegisterMode ? 'tab active' : 'tab'}
-                onClick={() => {
-                  setIsRegisterMode(true);
-                  setError('');
-                }}
-              >
-                Create Account
-              </button>
-            </div>
-          )}
-
-          <h2>
-            {loginPortal === 'admin'
-              ? 'Admin Portal'
-              : isRegisterMode
-              ? 'Create Team Account'
-              : 'Team Member Login'}
-          </h2>
-          <p className="subtitle">
-            {loginPortal === 'admin'
-              ? 'Sign in to assign tasks and monitor live team updates'
-              : isRegisterMode
-              ? 'Register to view and update your assigned tasks'
-              : 'Enter your credentials to access your assigned tasks'}
-          </p>
-
-          {error && <div className="alert error">{error}</div>}
-          {successMsg && <div className="alert success">{successMsg}</div>}
-
-          <form onSubmit={handleSubmit} className="auth-form">
-            {isRegisterMode && loginPortal === 'user' && (
-              <>
-                <div className="input-group">
-                  <label>Full Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Jessica Taylor"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label>Username</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. jessica (unique handle)"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    required
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="input-group">
-              <label>{loginPortal === 'admin' ? 'Admin Email' : 'Work Email or Username'}</label>
-              <input
-                type={loginPortal === 'admin' ? 'email' : 'text'}
-                placeholder={
-                  loginPortal === 'admin' ? 'admin@company.com' : 'jessica or jessica12@gmail.com'
-                }
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label>Password</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              className={
-                loginPortal === 'admin' ? 'btn-admin full-width' : 'btn-primary full-width'
-              }
-            >
-              {loginPortal === 'admin'
-                ? 'Sign In as Admin'
-                : isRegisterMode
-                ? 'Create Account'
-                : 'Sign In as User'}
-            </button>
-          </form>
-
-          {loginPortal === 'admin' ? (
-            <div className="demo-hint">
-              Default Admin: <strong>admin@company.com</strong> / <strong>admin123</strong>
-            </div>
-          ) : !isRegisterMode ? (
-            <div className="demo-hint">
-              Demo Member: <strong>jessica</strong> (or <strong>jessica12@gmail.com</strong>) / <strong>user123</strong>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </div>
+    <>
+      <LandingPage onOpenAuth={handleOpenAuth} />
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={handleCloseAuth}
+        initialPortal={authModalPortal}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    </>
   );
 }
