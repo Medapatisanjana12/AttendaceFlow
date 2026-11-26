@@ -10,11 +10,13 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalPortal, setAuthModalPortal] = useState('user');
   const [adminOnly, setAdminOnly] = useState(false);
+  const [initialRegisterMode, setInitialRegisterMode] = useState(false);
 
-  const handleOpenAuth = (portal = 'user', isOnlyAdmin = false) => {
+  const handleOpenAuth = (portal = 'user', isOnlyAdmin = false, isRegister = false) => {
     const isAdm = isOnlyAdmin || portal === 'admin';
     setAuthModalPortal(isAdm ? 'admin' : portal);
     setAdminOnly(isAdm);
+    setInitialRegisterMode(isRegister);
     setIsAuthModalOpen(true);
   };
 
@@ -59,6 +61,7 @@ export default function App() {
         onClose={handleCloseAuth}
         initialPortal={authModalPortal}
         adminOnly={adminOnly}
+        initialRegisterMode={initialRegisterMode}
         onLoginSuccess={handleLoginSuccess}
       />
     </>

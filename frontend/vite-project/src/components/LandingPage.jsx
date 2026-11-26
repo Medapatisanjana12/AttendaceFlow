@@ -42,16 +42,16 @@ export default function LandingPage({ onOpenAuth }) {
             <button
               type="button"
               className="saas-btn-text"
-              onClick={() => onOpenAuth('admin', true)}
+              onClick={() => onOpenAuth('admin', true, false)}
             >
               Admin Portal
             </button>
             <button
               type="button"
               className="saas-btn-primary"
-              onClick={() => onOpenAuth('user', false)}
+              onClick={() => onOpenAuth('user', false, false)}
             >
-              Get Started
+              Sign In
             </button>
           </div>
         </div>
@@ -90,9 +90,11 @@ export default function LandingPage({ onOpenAuth }) {
             <button
               type="button"
               className="saas-cta-primary"
-              onClick={() => onOpenAuth('user', false)}
+              onClick={() => onOpenAuth('user', false, true)}
+              title="Get Started and Create Account"
             >
               <span>Get Started</span>
+              <span className="cta-badge-pill">Create Account</span>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="5" y1="12" x2="19" y2="12"></line>
                 <polyline points="12 5 19 12 12 19"></polyline>
@@ -425,9 +427,9 @@ export default function LandingPage({ onOpenAuth }) {
                 <button
                   type="button"
                   className="saas-cta-primary"
-                  onClick={() => onOpenAuth('user', false)}
+                  onClick={() => onOpenAuth('user', false, true)}
                 >
-                  <span>Get Started with Workly</span>
+                  <span>Get Started — Create Account</span>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                     <polyline points="12 5 19 12 12 19"></polyline>
@@ -436,7 +438,7 @@ export default function LandingPage({ onOpenAuth }) {
                 <button
                   type="button"
                   className="saas-cta-ghost-light"
-                  onClick={() => onOpenAuth('admin', true)}
+                  onClick={() => onOpenAuth('admin', true, false)}
                 >
                   <span>Access Admin Portal</span>
                 </button>
@@ -476,8 +478,9 @@ export default function LandingPage({ onOpenAuth }) {
 
             <div className="footer-links-col">
               <h5>Access</h5>
-              <button type="button" onClick={() => onOpenAuth('admin', true)}>Administrator Portal</button>
-              <button type="button" onClick={() => onOpenAuth('user', false)}>Get Started</button>
+              <button type="button" onClick={() => onOpenAuth('admin', true, false)}>Administrator Portal</button>
+              <button type="button" onClick={() => onOpenAuth('user', false, false)}>Member Sign In</button>
+              <button type="button" onClick={() => onOpenAuth('user', false, true)}>Create Account</button>
             </div>
 
             <div className="footer-links-col">

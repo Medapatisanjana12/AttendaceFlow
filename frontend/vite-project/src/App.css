@@ -365,6 +365,19 @@ body {
   box-shadow: 0 14px 34px rgba(248, 117, 36, 0.42);
 }
 
+.cta-badge-pill {
+  background: rgba(255, 255, 255, 0.22);
+  color: #FFFFFF;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  display: inline-block;
+  line-height: 1;
+}
+
 .saas-cta-secondary {
   background: var(--white);
   border: 1.5px solid var(--border-subtle);

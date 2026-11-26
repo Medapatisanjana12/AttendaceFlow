@@ -7,10 +7,11 @@ export default function AuthModal({
   onClose,
   initialPortal = 'user',
   adminOnly = false,
+  initialRegisterMode = false,
   onLoginSuccess,
 }) {
   const [loginPortal, setLoginPortal] = useState(adminOnly ? 'admin' : initialPortal);
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isRegisterMode, setIsRegisterMode] = useState(initialRegisterMode);
 
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
@@ -20,11 +21,11 @@ export default function AuthModal({
   const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sync portal when initialPortal or adminOnly changes
+  // Sync portal when initialPortal, adminOnly, or initialRegisterMode changes
   useEffect(() => {
     if (isOpen) {
       setLoginPortal(adminOnly ? 'admin' : initialPortal);
-      setIsRegisterMode(false);
+      setIsRegisterMode(adminOnly ? false : Boolean(initialRegisterMode));
       setError('');
       setSuccessMsg('');
       setName('');
@@ -32,7 +33,7 @@ export default function AuthModal({
       setEmail('');
       setPassword('');
     }
-  }, [isOpen, initialPortal, adminOnly]);
+  }, [isOpen, initialPortal, adminOnly, initialRegisterMode]);
 
   // Keyboard escape listener to close modal
   useEffect(() => {

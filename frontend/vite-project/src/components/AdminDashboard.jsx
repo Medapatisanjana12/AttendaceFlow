@@ -590,16 +590,6 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 <strong className="stat-card-value">{completedCount}</strong>
                 <span className="stat-card-hint">Finished tasks</span>
               </div>
-
-              <div className="admin-stat-card card-rate">
-                <div className="stat-card-header">
-                  <span className="stat-card-label">Completion Rate</span>
-                </div>
-                <strong className="stat-card-value">{completionRate}%</strong>
-                <div className="progress-track">
-                  <div className="progress-fill" style={{ width: `${completionRate}%` }} />
-                </div>
-              </div>
             </div>
 
             {/* Overall Tasks Master Table */}
@@ -668,7 +658,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                             <td className="td-assigned"><strong>{task.assignedTo}</strong></td>
                             <td className="td-task">
                               <div style={{ fontWeight: 700 }}>{task.title}</div>
-                              {task.description && (
+                              {task.description && !task.description.toLowerCase().includes('review formal guidelines') && (
                                 <div style={{ fontSize: '13px', color: '#555282', marginTop: '3px' }}>
                                   {task.description}
                                 </div>
