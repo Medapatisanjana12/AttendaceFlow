@@ -29,6 +29,29 @@ const {
   saveSetting,
 } = require('./excelservice');
 
+// Automatically load local .env if it exists
+const envPath = path.join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  try {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    envContent.split('\n').forEach((line) => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const idx = trimmed.indexOf('=');
+        if (idx !== -1) {
+          const key = trimmed.slice(0, idx).trim();
+          const val = trimmed.slice(idx + 1).trim().replace(/(^['"]|['"]$)/g, '');
+          if (!process.env[key]) {
+            process.env[key] = val;
+          }
+        }
+      }
+    });
+  } catch (e) {
+    console.warn('[server] Error reading .env file:', e.message);
+  }
+}
+
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
@@ -976,6 +999,103 @@ app.get('/api/google-drive/test', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/google-drive/status
+ * Quick non-blocking status check for UI badges.
+ */
+app.get('/api/google-drive/status', (req, res) => {
+  const hasClientId = Boolean(process.env.GOOGLE_CLIENT_ID);
+  const hasClientSecret = Boolean(process.env.GOOGLE_CLIENT_SECRET);
+  const hasRefreshToken = Boolean(process.env.GOOGLE_REFRESH_TOKEN);
+  const isConfigured = hasClientId && hasClientSecret && hasRefreshToken;
+
+  res.json({
+    connected: isConfigured,
+    hasCredentials: hasClientId && hasClientSecret,
+    hasRefreshToken,
+    rootFolderId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || null,
+  });
+});
+
+/**
+ * POST /api/google-drive/configure
+ * Saves Client ID and Secret, updates Excel Settings & .env, and returns the Google Auth URL.
+ */
+app.post('/api/google-drive/configure', async (req, res) => {
+  try {
+    const { clientId, clientSecret, rootFolderId } = req.body;
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({ error: 'Client ID and Client Secret are required.' });
+    }
+
+    const cleanClientId = clientId.trim();
+    const cleanClientSecret = clientSecret.trim();
+    const cleanRootFolderId = (rootFolderId || '').trim();
+
+    process.env.GOOGLE_CLIENT_ID = cleanClientId;
+    process.env.GOOGLE_CLIENT_SECRET = cleanClientSecret;
+    if (cleanRootFolderId) {
+      process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = cleanRootFolderId;
+    }
+
+    // Persist to Excel Settings worksheet
+    await saveSetting('GOOGLE_CLIENT_ID', cleanClientId);
+    await saveSetting('GOOGLE_CLIENT_SECRET', cleanClientSecret);
+    if (cleanRootFolderId) {
+      await saveSetting('GOOGLE_DRIVE_ROOT_FOLDER_ID', cleanRootFolderId);
+    }
+
+    // Persist to local .env
+    const envFile = path.join(__dirname, '.env');
+    let envContent = '';
+    if (fs.existsSync(envFile)) {
+      envContent = fs.readFileSync(envFile, 'utf8');
+    }
+    const updateEnv = (content, key, val) => {
+      const regex = new RegExp(`^${key}=.*$`, 'm');
+      if (regex.test(content)) {
+        return content.replace(regex, `${key}=${val}`);
+      }
+      return content + (content.endsWith('\n') || !content ? '' : '\n') + `${key}=${val}\n`;
+    };
+    envContent = updateEnv(envContent, 'GOOGLE_CLIENT_ID', cleanClientId);
+    envContent = updateEnv(envContent, 'GOOGLE_CLIENT_SECRET', cleanClientSecret);
+    if (cleanRootFolderId) {
+      envContent = updateEnv(envContent, 'GOOGLE_DRIVE_ROOT_FOLDER_ID', cleanRootFolderId);
+    }
+    fs.writeFileSync(envFile, envContent, 'utf8');
+
+    // Generate OAuth Authorization URL
+    const redirectUri =
+      process.env.GOOGLE_REDIRECT_URI ||
+      `${req.protocol}://${req.get('host')}/api/google-drive/callback`;
+
+    const { google } = require('googleapis');
+    const oauth2 = new google.auth.OAuth2(
+      cleanClientId,
+      cleanClientSecret,
+      redirectUri
+    );
+
+    const state = createOAuthState();
+    const authUrl = oauth2.generateAuthUrl({
+      access_type: 'offline',
+      prompt: 'consent',
+      scope: ['https://www.googleapis.com/auth/drive.file'],
+      state,
+    });
+
+    res.json({
+      success: true,
+      message: 'Credentials configured. Please complete authorization in Google.',
+      authUrl,
+    });
+  } catch (err) {
+    console.error('Failed to configure Google Drive credentials:', err);
+    res.status(500).json({ error: 'Failed to configure credentials: ' + err.message });
+  }
+});
+
 const frontendDist = path.join(__dirname, '../frontend/vite-project/dist');
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
@@ -988,7 +1108,33 @@ if (fs.existsSync(frontendDist)) {
 }
 
 const PORT = process.env.PORT || 5000;
-initExcel().then(() => {
+initExcel().then(async () => {
+  // Load saved Google Drive configuration from Settings sheet
+  try {
+    const refreshToken = await getSetting('GOOGLE_REFRESH_TOKEN');
+    if (refreshToken && !process.env.GOOGLE_REFRESH_TOKEN) {
+      process.env.GOOGLE_REFRESH_TOKEN = refreshToken;
+    }
+    const clientId = await getSetting('GOOGLE_CLIENT_ID');
+    if (clientId && !process.env.GOOGLE_CLIENT_ID) {
+      process.env.GOOGLE_CLIENT_ID = clientId;
+    }
+    const clientSecret = await getSetting('GOOGLE_CLIENT_SECRET');
+    if (clientSecret && !process.env.GOOGLE_CLIENT_SECRET) {
+      process.env.GOOGLE_CLIENT_SECRET = clientSecret;
+    }
+    const rootFolderId = await getSetting('GOOGLE_DRIVE_ROOT_FOLDER_ID');
+    if (rootFolderId && !process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+      process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = rootFolderId;
+    }
+    if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN) {
+      googleDriveService.initClient();
+      console.log('[server] Google Drive client initialized from stored credentials.');
+    }
+  } catch (err) {
+    console.warn('[server] Error loading Google settings from Excel:', err.message);
+  }
+
   server.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
   });

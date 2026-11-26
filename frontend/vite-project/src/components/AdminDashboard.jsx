@@ -66,6 +66,53 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [settingsMsg, setSettingsMsg] = useState({ type: '', text: '' });
   const [isUpdatingCredentials, setIsUpdatingCredentials] = useState(false);
 
+  // Google Drive Integration State
+  const [driveStatus, setDriveStatus] = useState({ connected: false, hasCredentials: false, hasRefreshToken: false });
+  const [showDriveModal, setShowDriveModal] = useState(false);
+  const [driveClientId, setDriveClientId] = useState('');
+  const [driveClientSecret, setDriveClientSecret] = useState('');
+  const [driveRootFolderId, setDriveRootFolderId] = useState('');
+  const [driveSaving, setDriveSaving] = useState(false);
+  const [driveError, setDriveError] = useState('');
+
+  const fetchDriveStatus = () => {
+    axios
+      .get(`${API_BASE_URL}/google-drive/status`)
+      .then((res) => {
+        if (res.data) setDriveStatus(res.data);
+      })
+      .catch(() => {});
+  };
+
+  const handleSaveDriveConfig = async (e) => {
+    e.preventDefault();
+    if (!driveClientId || !driveClientSecret) {
+      setDriveError('Please enter both Client ID and Client Secret from your Google Cloud Console.');
+      return;
+    }
+    try {
+      setDriveSaving(true);
+      setDriveError('');
+      const res = await axios.post(`${API_BASE_URL}/google-drive/configure`, {
+        clientId: driveClientId,
+        clientSecret: driveClientSecret,
+        rootFolderId: driveRootFolderId,
+      });
+
+      if (res.data?.authUrl) {
+        window.location.href = res.data.authUrl;
+      } else {
+        alert('Credentials saved successfully.');
+        setShowDriveModal(false);
+        fetchDriveStatus();
+      }
+    } catch (err) {
+      setDriveError(err.response?.data?.error || 'Failed to save Google Drive configuration.');
+    } finally {
+      setDriveSaving(false);
+    }
+  };
+
   // Feedback State
   const [feedbackEditingTaskId, setFeedbackEditingTaskId] = useState(null);
   const [feedbackText, setFeedbackText] = useState('');
@@ -153,6 +200,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
     fetchUserModules();
     fetchAttendanceLogs();
+    fetchDriveStatus();
 
     socket.connect();
     socket.emit('join_room', { role: 'admin' });
@@ -535,6 +583,20 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
           </div>
 
           <div className="topbar-right">
+            {driveStatus.connected ? (
+              <span className="drive-topbar-pill connected" title="Google Drive is connected and active.">
+                🟢 Drive Connected
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="btn-drive-connect-topbar"
+                onClick={() => setShowDriveModal(true)}
+                title="Google Drive not connected. Click to configure Client ID & Secret."
+              >
+                🟠 Connect Google Drive
+              </button>
+            )}
             <span className="live-pill-tag">Live Sync Active</span>
             <button
               type="button"
@@ -1881,6 +1943,95 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 canUpload={false}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* GOOGLE DRIVE CONFIGURATION MODAL */}
+      {showDriveModal && (
+        <div className="modal-overlay" onClick={() => setShowDriveModal(false)}>
+          <div className="admin-drive-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>Connect Google Drive Storage</h3>
+                <p>Enter your Google Cloud OAuth credentials to store attachments directly in Google Drive.</p>
+              </div>
+              <button
+                type="button"
+                className="btn-modal-close"
+                onClick={() => setShowDriveModal(false)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveDriveConfig} className="drive-config-form">
+              {driveError && (
+                <div className="drive-modal-error">{driveError}</div>
+              )}
+
+              <div className="drive-setup-steps-hint">
+                <strong>From your Google Cloud Console:</strong>
+                <ol>
+                  <li>Copy your <strong>OAuth Client ID</strong> and paste below.</li>
+                  <li>Copy your <strong>Client Secret</strong> and paste below.</li>
+                  <li>Ensure <code>http://localhost:5000/api/google-drive/callback</code> is added in Authorized redirect URIs.</li>
+                </ol>
+              </div>
+
+              <div className="form-group">
+                <label>Google OAuth Client ID <span style={{ color: '#EF4444' }}>*</span></label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 1234567890-abcdef.apps.googleusercontent.com"
+                  value={driveClientId}
+                  onChange={(e) => setDriveClientId(e.target.value)}
+                  className="formal-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Google OAuth Client Secret <span style={{ color: '#EF4444' }}>*</span></label>
+                <input
+                  type="password"
+                  required
+                  placeholder="Enter your Client Secret (GOCSPX-...)"
+                  value={driveClientSecret}
+                  onChange={(e) => setDriveClientSecret(e.target.value)}
+                  className="formal-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Root Folder ID (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="Leave empty to auto-create 'Workly' in My Drive"
+                  value={driveRootFolderId}
+                  onChange={(e) => setDriveRootFolderId(e.target.value)}
+                  className="formal-input"
+                />
+              </div>
+
+              <div className="modal-actions-bar">
+                <button
+                  type="button"
+                  className="btn-modal-cancel"
+                  onClick={() => setShowDriveModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={driveSaving}
+                >
+                  {driveSaving ? 'Saving & Connecting...' : 'Save & Authorize with Google →'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
