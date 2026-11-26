@@ -4,6 +4,7 @@ import axios from 'axios';
 import socket from '../socket';
 import { API_BASE_URL, BACKEND_URL } from '../config';
 import { getTaskDeadlineInfo } from '../utils/timerUtils';
+import AttachmentManager from './AttachmentManager';
 
 const API_URL = API_BASE_URL;
 
@@ -635,6 +636,16 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                             ) : (
                               <span className="muted">— No proof —</span>
                             )}
+                            <div style={{ marginTop: '5px' }}>
+                              <button
+                                type="button"
+                                className="btn-table-att-link"
+                                onClick={() => setCurrentView('update')}
+                                title="Manage Google Drive files in update view"
+                              >
+                                Drive Files →
+                              </button>
+                            </div>
                           </td>
 
                           <td>
@@ -770,10 +781,25 @@ export default function UserDashboard({ userEmail, currentUser, onLogout }) {
                       ) : (
                         <div className="task-admin-feedback-card awaiting">
                           <span className="feedback-card-awaiting-text">
-                            No feedback from admin yet. Submit notes and proof below.
+                            No feedback from admin yet. Submit deliverables and notes below.
                           </span>
                         </div>
                       )}
+
+                      {/* GOOGLE DRIVE ATTACHMENTS & DELIVERABLES */}
+                      <div className="user-task-attachment-section">
+                        <AttachmentManager
+                          taskId={taskId}
+                          currentUser={{
+                            role: 'user',
+                            email: currentUser?.email || userEmail || '',
+                            name: currentUser?.name || currentUser?.username || 'Team Member',
+                          }}
+                          uploadDirection="User_to_Admin"
+                          title="Deliverables & Files (Google Drive)"
+                          canUpload={true}
+                        />
+                      </div>
 
                       {/* WORK UPDATE & PROOF OF WORK SECTION */}
                       <div className="note-section work-update-section">

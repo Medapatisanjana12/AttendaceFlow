@@ -5612,3 +5612,498 @@ tbody tr.admin-task-row .note-bubble {
   box-shadow: 0 3px 8px rgba(241, 111, 40, 0.25);
 }
 
+/* ==========================================================================
+   GOOGLE DRIVE ATTACHMENTS & DELIVERABLES MANAGEMENT STYLES
+   ========================================================================== */
+
+.attachment-manager-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  margin-top: 14px;
+}
+
+.attachment-manager-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #EDF2F7;
+  margin-bottom: 14px;
+}
+
+.att-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.att-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #242052;
+}
+
+.att-count-badge {
+  background: #FFF2EB;
+  color: #F87524;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid #FFD9C6;
+}
+
+.att-filter-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.att-tab {
+  background: #F1F5F9;
+  color: #64748B;
+  border: 1px solid #E2E8F0;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.att-tab:hover {
+  background: #E2E8F0;
+  color: #1E293B;
+}
+
+.att-tab.active {
+  background: #242052;
+  color: #FFFFFF;
+  border-color: #242052;
+}
+
+.att-alert {
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  margin-bottom: 12px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.att-alert.error {
+  background: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  color: #B91C1C;
+}
+
+.att-alert.success {
+  background: #F0FDF4;
+  border: 1px solid #86EFAC;
+  color: #15803D;
+}
+
+/* Upload Dropzone */
+.att-upload-section {
+  margin-bottom: 16px;
+}
+
+.att-dropzone {
+  border: 2px dashed #CBD5E1;
+  background: #FAF8F6;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.att-dropzone:hover {
+  border-color: #F87524;
+  background: #FFF9F5;
+}
+
+.att-dropzone.drag-over {
+  border-color: #F87524;
+  background: #FFF2EB;
+  transform: scale(1.01);
+}
+
+.att-dropzone.has-file {
+  border-style: solid;
+  border-color: #F87524;
+  background: #FFF8F3;
+}
+
+.att-file-input-hidden {
+  display: none;
+}
+
+.dropzone-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.dropzone-text strong {
+  display: block;
+  font-size: 13.5px;
+  color: #242052;
+  margin-bottom: 2px;
+}
+
+.dropzone-text small {
+  display: block;
+  font-size: 11.5px;
+  color: #64748B;
+}
+
+.dropzone-selected-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.selected-file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  overflow: hidden;
+}
+
+.selected-file-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #242052;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selected-file-size {
+  font-size: 12px;
+  color: #64748B;
+}
+
+.btn-remove-selected {
+  background: #E2E8F0;
+  color: #475569;
+  border: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.btn-remove-selected:hover {
+  background: #EF4444;
+  color: #FFFFFF;
+}
+
+.att-upload-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.att-description-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.att-description-input:focus {
+  border-color: #F87524;
+  box-shadow: 0 0 0 2px rgba(248, 117, 36, 0.15);
+}
+
+.btn-att-upload-submit {
+  background: #F87524;
+  color: #FFFFFF;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.btn-att-upload-submit:hover:not(:disabled) {
+  background: #E06014;
+  box-shadow: 0 2px 8px rgba(248, 117, 36, 0.3);
+}
+
+.btn-att-upload-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.att-progress-bar-container {
+  height: 4px;
+  background: #E2E8F0;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.att-progress-bar {
+  height: 100%;
+  background: #F87524;
+  transition: width 0.2s ease-in-out;
+}
+
+/* Attachment List */
+.att-list-container {
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.att-loading-state,
+.att-empty-state {
+  text-align: center;
+  padding: 24px;
+  color: #64748B;
+  font-size: 13px;
+}
+
+.att-items-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.att-item-card {
+  background: #FAF8F6;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.att-item-card:hover {
+  background: #FFFFFF;
+  border-color: #CBD5E1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.att-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.att-type-badge {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.att-direction-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.att-direction-badge.admin-dir {
+  background: #EEF2FF;
+  color: #4F46E5;
+  border: 1px solid #C7D2FE;
+}
+
+.att-direction-badge.user-dir {
+  background: #F0FDF4;
+  color: #16A34A;
+  border: 1px solid #BBF7D0;
+}
+
+.att-filename {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #242052;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.att-item-desc {
+  margin: 0;
+  font-size: 12px;
+  color: #475569;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.att-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #64748B;
+}
+
+.att-uploader-info {
+  font-size: 11px;
+  color: #64748B;
+  border-top: 1px dashed #E2E8F0;
+  padding-top: 6px;
+}
+
+.att-uploader-info strong {
+  color: #242052;
+}
+
+.att-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-att-download {
+  flex: 1;
+  background: #242052;
+  color: #FFFFFF;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.btn-att-download:hover {
+  background: #F87524;
+  color: #FFFFFF;
+}
+
+.btn-att-delete {
+  background: #FEE2E2;
+  color: #DC2626;
+  border: 1px solid #FCA5A5;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-att-delete:hover {
+  background: #EF4444;
+  color: #FFFFFF;
+  border-color: #EF4444;
+}
+
+/* Admin Dashboard Table Button */
+.btn-admin-manage-att {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #FAF8F6;
+  color: #242052;
+  border: 1px solid #CBD5E1;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-admin-manage-att:hover {
+  background: #242052;
+  color: #FFFFFF;
+  border-color: #242052;
+}
+
+/* User Dashboard Table Link */
+.btn-table-att-link {
+  background: none;
+  border: none;
+  color: #F87524;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+
+.btn-table-att-link:hover {
+  color: #E06014;
+}
+
+/* Admin Attachment Modal */
+.admin-attachment-modal-card {
+  background: #FFFFFF;
+  width: 100%;
+  max-width: 720px;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  border: 1px solid #E2E8F0;
+  animation: slideUp 0.25s ease-out;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-body-attachments {
+  padding: 16px 24px 24px;
+  overflow-y: auto;
+}
+
+.modal-body-attachments .attachment-manager-card {
+  margin-top: 0;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* User Dashboard Embedded Section */
+.user-task-attachment-section {
+  margin: 14px 0;
+}
+
+.user-task-attachment-section .attachment-manager-card {
+  margin-top: 0;
+  background: #FAF8F6;
+  border-color: #E2E8F0;
+}
+
+

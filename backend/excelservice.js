@@ -79,8 +79,26 @@ async function initExcel() {
     userSheet.addRow(['1', 'Company Administrator', 'admin@company.com', defaultAdminHash, 'admin', 'admin', 'Management', 'System Administrator', '2023-01-15', '+1 555-0100', '']);
     userSheet.addRow(['2', 'Jessica Taylor', 'jessica12@gmail.com', defaultUserHash, 'user', 'jessica', 'Marketing', 'Marketing Strategist', '2024-03-01', '+1 555-0199', '']);
 
+    // Sheet 3: Attachments
+    const attachmentSheet = workbook.addWorksheet('Attachments');
+    attachmentSheet.columns = [
+      { header: 'Attachment_ID', key: 'Attachment_ID', width: 25 },
+      { header: 'Task_ID', key: 'Task_ID', width: 25 },
+      { header: 'File_Name', key: 'File_Name', width: 35 },
+      { header: 'Original_File_Name', key: 'Original_File_Name', width: 35 },
+      { header: 'File_Type', key: 'File_Type', width: 25 },
+      { header: 'File_Size', key: 'File_Size', width: 18 },
+      { header: 'Uploaded_By', key: 'Uploaded_By', width: 25 },
+      { header: 'Uploaded_Role', key: 'Uploaded_Role', width: 18 },
+      { header: 'Upload_Direction', key: 'Upload_Direction', width: 22 },
+      { header: 'Google_Drive_File_ID', key: 'Google_Drive_File_ID', width: 38 },
+      { header: 'Google_Drive_Folder_ID', key: 'Google_Drive_Folder_ID', width: 38 },
+      { header: 'Uploaded_Date', key: 'Uploaded_Date', width: 25 },
+      { header: 'Description', key: 'Description', width: 45 },
+    ];
+
     await workbook.xlsx.writeFile(FILE_PATH);
-    console.log('Created tasks.xlsx with Tasks and Users sheets');
+    console.log('Created tasks.xlsx with Tasks, Users, and Attachments sheets');
   } else {
     try {
       const workbook = new ExcelJS.Workbook();
@@ -239,6 +257,28 @@ async function initExcel() {
             needsSave = true;
           }
         });
+      }
+
+      // Check / initialize Attachments sheet in existing tasks.xlsx
+      let attachmentSheet = workbook.getWorksheet('Attachments');
+      if (!attachmentSheet) {
+        attachmentSheet = workbook.addWorksheet('Attachments');
+        attachmentSheet.columns = [
+          { header: 'Attachment_ID', key: 'Attachment_ID', width: 25 },
+          { header: 'Task_ID', key: 'Task_ID', width: 25 },
+          { header: 'File_Name', key: 'File_Name', width: 35 },
+          { header: 'Original_File_Name', key: 'Original_File_Name', width: 35 },
+          { header: 'File_Type', key: 'File_Type', width: 25 },
+          { header: 'File_Size', key: 'File_Size', width: 18 },
+          { header: 'Uploaded_By', key: 'Uploaded_By', width: 25 },
+          { header: 'Uploaded_Role', key: 'Uploaded_Role', width: 18 },
+          { header: 'Upload_Direction', key: 'Upload_Direction', width: 22 },
+          { header: 'Google_Drive_File_ID', key: 'Google_Drive_File_ID', width: 38 },
+          { header: 'Google_Drive_Folder_ID', key: 'Google_Drive_Folder_ID', width: 38 },
+          { header: 'Uploaded_Date', key: 'Uploaded_Date', width: 25 },
+          { header: 'Description', key: 'Description', width: 45 },
+        ];
+        needsSave = true;
       }
 
       if (needsSave) {
@@ -933,6 +973,215 @@ async function getAttendanceLogs() {
   });
 }
 
+// --- ATTACHMENT RECORD MANAGEMENT ---
+
+async function addAttachmentRecord({
+  taskId,
+  fileName,
+  originalFileName,
+  fileType,
+  fileSize,
+  uploadedBy,
+  uploadedRole,
+  uploadDirection,
+  googleDriveFileId,
+  googleDriveFolderId,
+  description = '',
+}) {
+  await initExcel();
+  return enqueueWrite(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(FILE_PATH);
+    let attachmentSheet = workbook.getWorksheet('Attachments');
+    if (!attachmentSheet) {
+      attachmentSheet = workbook.addWorksheet('Attachments');
+      attachmentSheet.columns = [
+        { header: 'Attachment_ID', key: 'Attachment_ID', width: 25 },
+        { header: 'Task_ID', key: 'Task_ID', width: 25 },
+        { header: 'File_Name', key: 'File_Name', width: 35 },
+        { header: 'Original_File_Name', key: 'Original_File_Name', width: 35 },
+        { header: 'File_Type', key: 'File_Type', width: 25 },
+        { header: 'File_Size', key: 'File_Size', width: 18 },
+        { header: 'Uploaded_By', key: 'Uploaded_By', width: 25 },
+        { header: 'Uploaded_Role', key: 'Uploaded_Role', width: 18 },
+        { header: 'Upload_Direction', key: 'Upload_Direction', width: 22 },
+        { header: 'Google_Drive_File_ID', key: 'Google_Drive_File_ID', width: 38 },
+        { header: 'Google_Drive_Folder_ID', key: 'Google_Drive_Folder_ID', width: 38 },
+        { header: 'Uploaded_Date', key: 'Uploaded_Date', width: 25 },
+        { header: 'Description', key: 'Description', width: 45 },
+      ];
+    }
+
+    const attachmentId = `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const uploadedDate = new Date().toISOString();
+
+    const row = [
+      attachmentId,
+      String(taskId).trim(),
+      fileName || originalFileName,
+      originalFileName || fileName,
+      fileType || 'application/octet-stream',
+      typeof fileSize === 'number' ? fileSize : parseInt(fileSize, 10) || 0,
+      uploadedBy || 'Unknown',
+      uploadedRole || 'user',
+      uploadDirection || 'User_to_Admin',
+      googleDriveFileId || '',
+      googleDriveFolderId || '',
+      uploadedDate,
+      description || '',
+    ];
+
+    attachmentSheet.addRow(row);
+    await workbook.xlsx.writeFile(FILE_PATH);
+
+    return {
+      attachmentId,
+      taskId: String(taskId).trim(),
+      fileName: fileName || originalFileName,
+      originalFileName: originalFileName || fileName,
+      fileType: fileType || 'application/octet-stream',
+      fileSize: typeof fileSize === 'number' ? fileSize : parseInt(fileSize, 10) || 0,
+      uploadedBy: uploadedBy || 'Unknown',
+      uploadedRole: uploadedRole || 'user',
+      uploadDirection: uploadDirection || 'User_to_Admin',
+      googleDriveFileId: googleDriveFileId || '',
+      googleDriveFolderId: googleDriveFolderId || '',
+      uploadedDate,
+      description: description || '',
+    };
+  });
+}
+
+async function getAttachmentsByTaskId(taskId) {
+  if (!taskId) return [];
+  await initExcel();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(FILE_PATH);
+  const attachmentSheet = workbook.getWorksheet('Attachments');
+  if (!attachmentSheet) return [];
+
+  const attachments = [];
+  const targetId = String(taskId).trim();
+
+  attachmentSheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const rowTaskId = getCellValueString(row.getCell(2));
+    if (rowTaskId === targetId) {
+      attachments.push({
+        attachmentId: getCellValueString(row.getCell(1)),
+        taskId: rowTaskId,
+        fileName: getCellValueString(row.getCell(3)),
+        originalFileName: getCellValueString(row.getCell(4)),
+        fileType: getCellValueString(row.getCell(5)),
+        fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
+        uploadedBy: getCellValueString(row.getCell(7)),
+        uploadedRole: getCellValueString(row.getCell(8)),
+        uploadDirection: getCellValueString(row.getCell(9)),
+        googleDriveFileId: getCellValueString(row.getCell(10)),
+        googleDriveFolderId: getCellValueString(row.getCell(11)),
+        uploadedDate: getCellValueString(row.getCell(12)),
+        description: getCellValueString(row.getCell(13)),
+      });
+    }
+  });
+
+  return attachments;
+}
+
+async function getAttachmentById(attachmentId) {
+  if (!attachmentId) return null;
+  await initExcel();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(FILE_PATH);
+  const attachmentSheet = workbook.getWorksheet('Attachments');
+  if (!attachmentSheet) return null;
+
+  const targetId = String(attachmentId).trim();
+  let found = null;
+
+  attachmentSheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1 || found) return;
+    const id = getCellValueString(row.getCell(1));
+    if (id === targetId) {
+      found = {
+        attachmentId: id,
+        taskId: getCellValueString(row.getCell(2)),
+        fileName: getCellValueString(row.getCell(3)),
+        originalFileName: getCellValueString(row.getCell(4)),
+        fileType: getCellValueString(row.getCell(5)),
+        fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
+        uploadedBy: getCellValueString(row.getCell(7)),
+        uploadedRole: getCellValueString(row.getCell(8)),
+        uploadDirection: getCellValueString(row.getCell(9)),
+        googleDriveFileId: getCellValueString(row.getCell(10)),
+        googleDriveFolderId: getCellValueString(row.getCell(11)),
+        uploadedDate: getCellValueString(row.getCell(12)),
+        description: getCellValueString(row.getCell(13)),
+      };
+    }
+  });
+
+  return found;
+}
+
+async function deleteAttachmentRecord(attachmentId) {
+  if (!attachmentId) return false;
+  await initExcel();
+  return enqueueWrite(async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(FILE_PATH);
+    const attachmentSheet = workbook.getWorksheet('Attachments');
+    if (!attachmentSheet) return false;
+
+    const targetId = String(attachmentId).trim();
+    let rowToDelete = null;
+
+    attachmentSheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1 || rowToDelete) return;
+      const id = getCellValueString(row.getCell(1));
+      if (id === targetId) {
+        rowToDelete = rowNumber;
+      }
+    });
+
+    if (!rowToDelete) return false;
+
+    attachmentSheet.spliceRows(rowToDelete, 1);
+    await workbook.xlsx.writeFile(FILE_PATH);
+    return true;
+  });
+}
+
+async function getAllAttachments() {
+  await initExcel();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(FILE_PATH);
+  const attachmentSheet = workbook.getWorksheet('Attachments');
+  if (!attachmentSheet) return [];
+
+  const attachments = [];
+  attachmentSheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    attachments.push({
+      attachmentId: getCellValueString(row.getCell(1)),
+      taskId: getCellValueString(row.getCell(2)),
+      fileName: getCellValueString(row.getCell(3)),
+      originalFileName: getCellValueString(row.getCell(4)),
+      fileType: getCellValueString(row.getCell(5)),
+      fileSize: parseInt(getCellValueString(row.getCell(6)), 10) || 0,
+      uploadedBy: getCellValueString(row.getCell(7)),
+      uploadedRole: getCellValueString(row.getCell(8)),
+      uploadDirection: getCellValueString(row.getCell(9)),
+      googleDriveFileId: getCellValueString(row.getCell(10)),
+      googleDriveFolderId: getCellValueString(row.getCell(11)),
+      uploadedDate: getCellValueString(row.getCell(12)),
+      description: getCellValueString(row.getCell(13)),
+    });
+  });
+
+  return attachments;
+}
+
 module.exports = {
   initExcel,
   findUserByEmail,
@@ -946,4 +1195,9 @@ module.exports = {
   getUserProgressModules,
   getAttendanceLogs,
   syncUserProgressSheet,
+  addAttachmentRecord,
+  getAttachmentsByTaskId,
+  getAttachmentById,
+  deleteAttachmentRecord,
+  getAllAttachments,
 };

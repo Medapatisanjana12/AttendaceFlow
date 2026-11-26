@@ -3,6 +3,7 @@ import axios from 'axios';
 import socket from '../socket';
 import { API_BASE_URL, BACKEND_URL } from '../config';
 import { getTaskDeadlineInfo } from '../utils/timerUtils';
+import AttachmentManager from './AttachmentManager';
 
 export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   // Navigation State
@@ -16,6 +17,8 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
   const [deadline, setDeadline] = useState('');
   const [adminDocAttachment, setAdminDocAttachment] = useState('');
   const [adminDocFileName, setAdminDocFileName] = useState('');
+  const [adminDocFile, setAdminDocFile] = useState(null);
+  const [attachmentModalTask, setAttachmentModalTask] = useState(null);
   const [isUploadingAdminDoc, setIsUploadingAdminDoc] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [filterStatus, setFilterStatus] = useState('All');
@@ -186,25 +189,9 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
 
   const handleAdminDocUpload = (file) => {
     if (!file) return;
-    setIsUploadingAdminDoc(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const fileData = reader.result;
-        const res = await axios.post(`${API_BASE_URL}/upload`, {
-          fileName: file.name,
-          fileData,
-        });
-        setAdminDocAttachment(res.data.url);
-        setAdminDocFileName(file.name);
-      } catch (err) {
-        console.error('Admin document upload error:', err);
-        alert('Failed to upload document.');
-      } finally {
-        setIsUploadingAdminDoc(false);
-      }
-    };
-    reader.readAsDataURL(file);
+    setAdminDocFile(file);
+    setAdminDocFileName(file.name);
+    setAdminDocAttachment(file.name);
   };
 
   const handleAssignTask = async (e) => {
@@ -212,20 +199,41 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
     if (!assignedTo || !title) return;
 
     try {
-      await axios.post(`${API_BASE_URL}/tasks`, {
+      const res = await axios.post(`${API_BASE_URL}/tasks`, {
         assignedTo,
         title,
         description,
         deadline: deadline ? new Date(deadline).toISOString() : '',
         adminAttachment: adminDocAttachment.trim(),
       });
+
+      // If a document was attached by admin, upload directly to Google Drive
+      if (adminDocFile && res.data?.id) {
+        try {
+          const formData = new FormData();
+          formData.append('file', adminDocFile);
+          formData.append('taskId', res.data.id);
+          formData.append('uploadDirection', 'Admin_to_User');
+          formData.append('uploadedBy', adminUser?.name || 'Administrator');
+          formData.append('uploadedRole', 'admin');
+          formData.append('description', 'Initial project brief and reference document');
+
+          await axios.post(`${API_BASE_URL}/attachments/upload`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+        } catch (uploadErr) {
+          console.error('Failed to upload task attachment to Google Drive:', uploadErr);
+        }
+      }
+
       setAssignedTo('');
       setTitle('');
       setDescription('');
       setDeadline('');
       setAdminDocAttachment('');
       setAdminDocFileName('');
-      alert('Task successfully allocated to team member.');
+      setAdminDocFile(null);
+      alert('Task successfully allocated to team member with attached brief.');
     } catch (err) {
       alert('Failed to assign task. Make sure tasks.xlsx is closed.');
     }
@@ -708,6 +716,16 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                               ) : (
                                 <span style={{ color: '#94a3b8', fontSize: '13px' }}>— No proof —</span>
                               )}
+                              <div style={{ marginTop: '6px' }}>
+                                <button
+                                  type="button"
+                                  className="btn-admin-manage-att"
+                                  onClick={() => setAttachmentModalTask(task)}
+                                  title="View or upload Drive files & deliverables for this task"
+                                >
+                                  Drive Files
+                                </button>
+                              </div>
                             </td>
                             <td className="td-feedback">
                               {feedbackEditingTaskId === task.id ? (
@@ -1188,6 +1206,7 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                         onClick={() => {
                           setAdminDocAttachment('');
                           setAdminDocFileName('');
+                          setAdminDocFile(null);
                         }}
                       >
                         Remove
@@ -1346,6 +1365,16 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                               ) : (
                                 <span style={{ color: '#94a3b8' }}>— No attachment —</span>
                               )}
+                              <div style={{ marginTop: '6px' }}>
+                                <button
+                                  type="button"
+                                  className="btn-admin-manage-att"
+                                  onClick={() => setAttachmentModalTask(task)}
+                                  title="Inspect deliverables in Google Drive"
+                                >
+                                  Drive Files
+                                </button>
+                              </div>
                             </td>
                             <td>
                               {task.userNote ? (
@@ -1707,6 +1736,43 @@ export default function AdminDashboard({ adminUser, onUpdateAdmin, onLogout }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* GOOGLE DRIVE ATTACHMENTS MODAL */}
+      {attachmentModalTask && (
+        <div className="modal-overlay" onClick={() => setAttachmentModalTask(null)}>
+          <div className="admin-attachment-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>Task Deliverables & Files</h3>
+                <p>
+                  Deliverable: <strong>{attachmentModalTask.title}</strong> — Assigned to: <strong>{attachmentModalTask.assignedTo}</strong> (Task #{attachmentModalTask.id})
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-modal-close"
+                onClick={() => setAttachmentModalTask(null)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body-attachments">
+              <AttachmentManager
+                taskId={attachmentModalTask.id}
+                currentUser={{
+                  role: 'admin',
+                  email: adminUser?.email || 'admin@workly.com',
+                  name: adminUser?.name || 'Administrator',
+                }}
+                uploadDirection="Admin_to_User"
+                title="Task Files & Deliverables (Google Drive)"
+                canUpload={true}
+              />
+            </div>
           </div>
         </div>
       )}

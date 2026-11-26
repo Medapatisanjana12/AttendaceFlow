@@ -5,6 +5,8 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
+const googleDriveService = require('./googleDriveService');
 const {
   initExcel,
   findUserByEmail,
@@ -17,6 +19,11 @@ const {
   getAllUsers,
   getUserProgressModules,
   getAttendanceLogs,
+  addAttachmentRecord,
+  getAttachmentsByTaskId,
+  getAttachmentById,
+  deleteAttachmentRecord,
+  getAllAttachments,
 } = require('./excelservice');
 
 const app = express();
@@ -42,6 +49,41 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 app.use('/uploads', express.static(uploadsDir));
+
+// --- MULTER CONFIGURATION FOR ATTACHMENT UPLOADS ---
+const storage = multer.memoryStorage();
+const uploadAttachment = multer({
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10 MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedExtensions = ['.pdf', '.jpeg', '.jpg', '.png', '.webp', '.doc', '.docx', '.xls', '.xlsx'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedMimeTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+
+    if (!allowedExtensions.includes(ext)) {
+      return cb(
+        new Error(`File format ${ext} is not supported. Permitted types: PDF, JPEG, PNG, WebP, DOC, DOCX, XLS, XLSX.`)
+      );
+    }
+
+    if (!allowedMimeTypes.includes(file.mimetype) && file.mimetype !== 'application/octet-stream') {
+      return cb(new Error(`Invalid file MIME type: ${file.mimetype}`));
+    }
+
+    cb(null, true);
+  },
+});
 
 // --- SOCKET.IO REAL-TIME ROOMS ---
 io.on('connection', (socket) => {
@@ -349,6 +391,351 @@ app.post('/api/tasks', async (req, res) => {
     res.status(201).json(newTask);
   } catch (err) {
     res.status(500).json({ error: 'Failed to save task to Excel' });
+  }
+});
+
+// ===================================================================
+// ATTACHMENT MANAGEMENT ENDPOINTS (GOOGLE DRIVE & EXCEL WORKBOOK)
+// ===================================================================
+
+app.post('/api/attachments/upload', (req, res) => {
+  uploadAttachment.single('file')(req, res, async (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File size exceeds maximum permitted limit of 10 MB.' });
+      }
+      return res.status(400).json({ error: err.message || 'File upload validation failed' });
+    }
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file was provided in the upload request' });
+      }
+
+      const { taskId, uploadDirection, uploadedBy, uploadedRole, description } = req.body;
+
+      if (!taskId) {
+        return res.status(400).json({ error: 'Task ID is required for attachment association' });
+      }
+
+      const direction = uploadDirection === 'Admin_to_User' ? 'Admin_to_User' : 'User_to_Admin';
+      const role = uploadedRole === 'admin' ? 'admin' : 'user';
+
+      // 1. Server-side Task Existence and Authorization Verification
+      const allTasks = await getAllTasks();
+      const task = allTasks.find((t) => String(t.id).trim() === String(taskId).trim());
+
+      if (!task) {
+        return res.status(404).json({ error: `Task with ID ${taskId} does not exist.` });
+      }
+
+      // 2. Role & Access Authorization Checks
+      if (role === 'user') {
+        const uEmail = String(uploadedBy || '').trim().toLowerCase();
+        const assignedTarget = String(task.assignedTo || '').trim().toLowerCase();
+        const assignedEmailTarget = String(task.assignedToEmail || '').trim().toLowerCase();
+
+        // Verify that the task is assigned to this user
+        if (uEmail !== assignedTarget && uEmail !== assignedEmailTarget) {
+          const userObj = await findUserByNameOrEmail(uEmail);
+          const userName = userObj?.name?.trim().toLowerCase();
+          const userHandle = userObj?.username?.trim().toLowerCase();
+
+          if (userName !== assignedTarget && userHandle !== assignedTarget) {
+            return res.status(403).json({
+              error: 'Access denied: You are only authorized to upload attachments for tasks assigned to you.',
+            });
+          }
+        }
+      }
+
+      // 3. Upload File to Google Drive
+      let driveResult;
+      try {
+        driveResult = await googleDriveService.uploadFile({
+          buffer: req.file.buffer,
+          originalName: req.file.originalname,
+          mimeType: req.file.mimetype,
+          uploadDirection: direction,
+          taskId: String(taskId).trim(),
+          description: description || '',
+          uploadedBy: uploadedBy || (role === 'admin' ? 'Administrator' : 'Team Member'),
+          uploadedRole: role,
+        });
+      } catch (driveErr) {
+        console.error('Google Drive Upload Error:', driveErr);
+        return res.status(502).json({
+          error: 'Failed to upload document to Google Drive storage: ' + (driveErr.message || 'Drive API error'),
+        });
+      }
+
+      // 4. Record Metadata in Excel Attachments Worksheet
+      let record;
+      try {
+        record = await addAttachmentRecord({
+          taskId: String(taskId).trim(),
+          fileName: driveResult.fileName,
+          originalFileName: req.file.originalname,
+          fileType: driveResult.fileType || req.file.mimetype,
+          fileSize: driveResult.fileSize || req.file.size,
+          uploadedBy: uploadedBy || (role === 'admin' ? 'Administrator' : 'Team Member'),
+          uploadedRole: role,
+          uploadDirection: direction,
+          googleDriveFileId: driveResult.googleDriveFileId,
+          googleDriveFolderId: driveResult.googleDriveFolderId,
+          description: description || '',
+        });
+      } catch (excelErr) {
+        console.error('Excel metadata write error. Initiating Google Drive rollback:', excelErr);
+        // Rollback: delete the uploaded file from Google Drive to avoid orphan
+        try {
+          await googleDriveService.deleteFile(driveResult.googleDriveFileId);
+        } catch (delErr) {
+          console.error('Google Drive file deletion during rollback failed:', delErr.message);
+        }
+        return res.status(500).json({ error: 'Failed to record attachment metadata in Excel workbook' });
+      }
+
+      // 5. Emit Real-Time Socket.io Updates
+      io.to('admins').emit('attachment_uploaded', record);
+      io.to('admins').emit('user_modules_updated');
+
+      const assignedRoom = String(task.assignedTo).trim().toLowerCase();
+      io.to(assignedRoom).emit('attachment_uploaded', record);
+      if (task.assignedToEmail) {
+        io.to(task.assignedToEmail.trim().toLowerCase()).emit('attachment_uploaded', record);
+      }
+
+      res.status(201).json(record);
+    } catch (err) {
+      console.error('Attachment upload handler error:', err);
+      res.status(500).json({ error: 'Server error processing file attachment: ' + err.message });
+    }
+  });
+});
+
+app.get('/api/attachments/:taskId', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { role, email } = req.query;
+
+    if (!taskId) {
+      return res.status(400).json({ error: 'Task ID is required' });
+    }
+
+    const allTasks = await getAllTasks();
+    const task = allTasks.find((t) => String(t.id).trim() === String(taskId).trim());
+
+    if (!task) {
+      return res.status(404).json({ error: `Task ${taskId} not found` });
+    }
+
+    // Role-based task access verification
+    if (role === 'user' && email) {
+      const uEmail = String(email).trim().toLowerCase();
+      const assignedTarget = String(task.assignedTo || '').trim().toLowerCase();
+      const assignedEmailTarget = String(task.assignedToEmail || '').trim().toLowerCase();
+
+      if (uEmail !== assignedTarget && uEmail !== assignedEmailTarget) {
+        const userObj = await findUserByNameOrEmail(uEmail);
+        const userName = userObj?.name?.trim().toLowerCase();
+        const userHandle = userObj?.username?.trim().toLowerCase();
+
+        if (userName !== assignedTarget && userHandle !== assignedTarget) {
+          return res.status(403).json({ error: 'Access denied: You are not authorized to view attachments for this task.' });
+        }
+      }
+    }
+
+    const attachments = await getAttachmentsByTaskId(taskId);
+    res.json(attachments);
+  } catch (err) {
+    console.error('Error fetching attachments:', err);
+    res.status(500).json({ error: 'Failed to retrieve attachments from Excel' });
+  }
+});
+
+app.get('/api/attachments/download/:attachmentId', async (req, res) => {
+  try {
+    const { attachmentId } = req.params;
+    const { role, email } = req.query;
+
+    if (!attachmentId) {
+      return res.status(400).json({ error: 'Attachment ID is required' });
+    }
+
+    const attachment = await getAttachmentById(attachmentId);
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment record not found' });
+    }
+
+    // Authorization verification
+    const allTasks = await getAllTasks();
+    const task = allTasks.find((t) => String(t.id).trim() === String(attachment.taskId).trim());
+
+    if (role === 'user' && email && task) {
+      const uEmail = String(email).trim().toLowerCase();
+      const assignedTarget = String(task.assignedTo || '').trim().toLowerCase();
+      const assignedEmailTarget = String(task.assignedToEmail || '').trim().toLowerCase();
+
+      if (uEmail !== assignedTarget && uEmail !== assignedEmailTarget) {
+        const userObj = await findUserByNameOrEmail(uEmail);
+        const userName = userObj?.name?.trim().toLowerCase();
+        const userHandle = userObj?.username?.trim().toLowerCase();
+
+        if (userName !== assignedTarget && userHandle !== assignedTarget) {
+          return res.status(403).json({ error: 'Access denied: You do not have permission to download this file.' });
+        }
+      }
+    }
+
+    const { stream, fileName, fileType, fileSize } = await googleDriveService.getDownloadStream(
+      attachment.googleDriveFileId
+    );
+
+    const safeFilename = encodeURIComponent(attachment.originalFileName || fileName || 'document');
+    res.setHeader('Content-Type', fileType || attachment.fileType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`
+    );
+    if (fileSize) {
+      res.setHeader('Content-Length', fileSize);
+    }
+
+    stream.pipe(res);
+    stream.on('error', (streamErr) => {
+      console.error('Download stream error:', streamErr);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Storage stream interrupted: ' + streamErr.message });
+      }
+    });
+  } catch (err) {
+    console.error('Download handler error:', err);
+    res.status(500).json({ error: 'Failed to download file: ' + err.message });
+  }
+});
+
+app.delete('/api/attachments/:attachmentId', async (req, res) => {
+  try {
+    const { attachmentId } = req.params;
+    const role = (req.body && req.body.role) || req.query.role;
+    const email = (req.body && req.body.email) || req.query.email;
+
+    if (!attachmentId) {
+      return res.status(400).json({ error: 'Attachment ID is required' });
+    }
+
+    const attachment = await getAttachmentById(attachmentId);
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment record not found' });
+    }
+
+    const allTasks = await getAllTasks();
+    const task = allTasks.find((t) => String(t.id).trim() === String(attachment.taskId).trim());
+
+    // Security & Authorization Checks
+    if (role === 'user') {
+      const uEmail = String(email || '').trim().toLowerCase();
+      const uploader = String(attachment.uploadedBy || '').trim().toLowerCase();
+
+      // Users can only delete their own uploads in User_to_Admin direction, never admin files
+      if (attachment.uploadDirection === 'Admin_to_User' || attachment.uploadedRole === 'admin') {
+        return res.status(403).json({ error: 'Access denied: Team members cannot delete administrator reference attachments.' });
+      }
+
+      if (uEmail !== uploader) {
+        const userObj = await findUserByNameOrEmail(uEmail);
+        const userName = userObj?.name?.trim().toLowerCase();
+        const userHandle = userObj?.username?.trim().toLowerCase();
+
+        if (userName !== uploader && userHandle !== uploader) {
+          return res.status(403).json({ error: 'Access denied: You can only delete attachments that you uploaded.' });
+        }
+      }
+    }
+
+    // 1. Delete from Google Drive
+    try {
+      await googleDriveService.deleteFile(attachment.googleDriveFileId);
+    } catch (driveErr) {
+      console.warn('Google Drive deletion warning (file may already be removed):', driveErr.message);
+    }
+
+    // 2. Delete from Excel Attachments worksheet
+    await deleteAttachmentRecord(attachmentId);
+
+    // 3. Emit real-time deletion notifications
+    io.to('admins').emit('attachment_deleted', { attachmentId, taskId: attachment.taskId });
+    if (task) {
+      const assignedRoom = String(task.assignedTo).trim().toLowerCase();
+      io.to(assignedRoom).emit('attachment_deleted', { attachmentId, taskId: attachment.taskId });
+      if (task.assignedToEmail) {
+        io.to(task.assignedToEmail.trim().toLowerCase()).emit('attachment_deleted', { attachmentId, taskId: attachment.taskId });
+      }
+    }
+
+    res.json({ success: true, message: 'Attachment deleted successfully', attachmentId });
+  } catch (err) {
+    console.error('Attachment deletion error:', err);
+    res.status(500).json({ error: 'Failed to delete attachment: ' + err.message });
+  }
+});
+
+// --- GOOGLE OAUTH2 HELPER ROUTES (For generating refresh token) ---
+
+app.get('/api/drive/auth-url', (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.status(400).json({
+      error: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured in environment variables to generate auth URL.',
+    });
+  }
+
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}/oauth2callback`;
+  const { google } = require('googleapis');
+  const oauth2 = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    redirectUri
+  );
+
+  const url = oauth2.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: ['https://www.googleapis.com/auth/drive.file'],
+  });
+
+  res.json({ authUrl: url, redirectUri });
+});
+
+app.get('/oauth2callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).send('<h3>Error: Missing authorization code parameter.</h3>');
+  }
+
+  try {
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}/oauth2callback`;
+    const { google } = require('googleapis');
+    const oauth2 = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      redirectUri
+    );
+
+    const { tokens } = await oauth2.getToken(code);
+
+    res.send(`
+      <div style="font-family: sans-serif; max-width: 650px; margin: 40px auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 12px; background: #FAF8F6;">
+        <h2 style="color: #242052;">Workly Google Drive Authorization Successful</h2>
+        <p style="color: #166534; font-weight: bold;">Google Drive OAuth 2.0 access authorized successfully!</p>
+        <p>Copy your <strong>Refresh Token</strong> and set it in your <code>.env</code> file (or Render Dashboard):</p>
+        <pre style="background: #242052; color: #F87524; padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px;">GOOGLE_REFRESH_TOKEN=${tokens.refresh_token || 'Token not returned (Ensure prompt=consent)'}</pre>
+        <p style="font-size: 12px; color: #64748B;">Once saved in your backend environment variables, restart the server to activate Google Drive API v3 storage.</p>
+      </div>
+    `);
+  } catch (err) {
+    res.status(500).send(`<h3>Failed to exchange authorization code:</h3><p>${err.message}</p>`);
   }
 });
 
